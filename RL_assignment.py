@@ -36,6 +36,10 @@ MAX_FOLLOW_DISTANCE = 30.0 # meters
 DISTANCE_PENALTY_WEIGHT = 2.0
 SPEED_PENALTY_WEIGHT = 1.0
 
+# The maximum acceleration and deceleration values are set to 2.0 m/s^2 and -2.0 m/s^2, respectively.
+MAX_ACCELERATION = 2.0    # m/s^2
+MAX_DECELERATION = -2.0   # m/s^2
+
 
 
 
@@ -132,7 +136,10 @@ class TrainEnv(gym.Env):
         self.delta_t = delta_t
 
         # Actions, Observations
-        self.action_space = spaces.Box(low=-3.0, high=3.0, shape=(1,), dtype=np.float32)
+        # Restrict the agent's actions to realistic acceleration and deceleration
+        #  values (-2 to 2 m/s^2) to better model real vehicle dynamics.
+        # I.e. Limit the agent to realistic acceleration and braking commands.
+        self.action_space = spaces.Box(low=MAX_DECELERATION, high=MAX_ACCELERATION, shape=(1,), dtype=np.float32)
         self.observation_space = spaces.Box(
             low=np.array([0.0, 0.0, 0.0]),
             high=np.array([50.0, 50.0, 100.0]),
@@ -196,17 +203,19 @@ class TrainEnv(gym.Env):
     #
     # It advances the world by one timestep, applying the agent's action to update the current speed.
     #
-    #t the step() function is responsible for: 
+    # The step() function is responsible for: 
     # - updating the speed, 
     # - computing the reward, 
     # - advancing to the next time step, and 
     # - telling the agent whether the episode has finished
     def step(self, action):
-        # Apply the agent's action (acceleration) to update the current speed
-        accel = np.clip(action[0], -3.0, 3.0)
-        self.current_speed += accel * self.delta_t
         
-        # Ego vehicle moves
+        # Clamp the selected acceleration to the allowed physical limits before updating the vehicle's speed.
+        # I.e. Enforce the acceleration limits defined by the environment.
+        accel = np.clip(action[0], MAX_DECELERATION, MAX_ACCELERATION)
+        
+        # Ego vehicle accelerates according to the agent's action
+        self.current_speed += accel * self.delta_t
         self.current_position += self.current_speed * self.delta_t
 
         # Lead vehicle accelerates according to the reference speed profile
@@ -270,7 +279,10 @@ class TestEnv(gym.Env):
         self.n_steps = len(full_data)
         self.delta_t = delta_t
 
-        self.action_space = spaces.Box(low=-3.0, high=3.0, shape=(1,), dtype=np.float32)
+        # Restrict the agent's actions to realistic acceleration and deceleration
+        #  values (-2 to 2 m/s^2) to better model real vehicle dynamics.
+        # I.e. Limit the agent to realistic acceleration and braking commands.
+        self.action_space = spaces.Box(low=MAX_DECELERATION, high=MAX_ACCELERATION, shape=(1,), dtype=np.float32)
         self.observation_space = spaces.Box(
             low=np.array([0.0, 0.0, 0.0]),
             high=np.array([50.0, 50.0, 100.0]),
@@ -312,8 +324,11 @@ class TestEnv(gym.Env):
         return obs, info
 
     def step(self, action):
+        # Clamp the selected acceleration to the allowed physical limits before updating the vehicle's speed.
+        # I.e. Enforce the acceleration limits defined by the environment.
+        accel = np.clip(action[0], MAX_DECELERATION, MAX_ACCELERATION)
+        
         # Ego vehicle accelerates according to the agent's action
-        accel = np.clip(action[0], -3.0, 3.0)
         self.current_speed += accel * self.delta_t
         self.current_position += self.current_speed * self.delta_t
 
