@@ -25,7 +25,19 @@ import csv
 DATA_LEN = 1200
 CSV_FILE = "speed_profile.csv"
 
-INITIAL_DISTANCE = 20.0 # meters
+# We have a target between 5-30 meters.
+# Start the lead vehicle 20 meters ahead of the ego vehicle for a nice in-between initialization.
+INITIAL_DISTANCE = 20.0    # meters
+
+MIN_FOLLOW_DISTANCE = 5.0  # meters
+MAX_FOLLOW_DISTANCE = 30.0 # meters
+
+# Weights for the penalties in the reward function.
+DISTANCE_PENALTY_WEIGHT = 2.0
+SPEED_PENALTY_WEIGHT = 1.0
+
+
+
 
 # Force-generate a 1200-step sinusoidal + noise speed profile
 speeds = 10 + 5 * np.sin(0.02 * np.arange(DATA_LEN)) + 2 * np.random.randn(DATA_LEN)
@@ -125,7 +137,7 @@ class TrainEnv(gym.Env):
             low=np.array([0.0, 0.0, 0.0]),
             high=np.array([50.0, 50.0, 100.0]),
             dtype=np.float32
-        )
+            )
 
         # Episode-specific
         self.current_episode = None
@@ -160,8 +172,7 @@ class TrainEnv(gym.Env):
         # The lead vehicle's speed is set to the first value in the full dataset
         self.lead_speed = self.current_episode[self.step_idx]
 
-        # Start the lead vehicle 20 meters ahead of the ego vehicle.
-        # We have a target between 5-30 meters, so we can start at 20 meters
+        # The lead vehicle's position is initialized to 20 meters ahead of the ego vehicle.
         self.lead_position = INITIAL_DISTANCE
 
         # Following distance is the distance between the lead vehicle and the ego vehicle
@@ -209,10 +220,19 @@ class TrainEnv(gym.Env):
             self.current_speed = 0.0
 
         # Calculate the reward based on the difference between current speed and reference speed
-        error = abs(self.current_speed - self.lead_speed)
-        # reward = -error
-        reward = -(error ** 2)
+        speed_error = abs(self.current_speed - self.lead_speed)
+        
+        distance_error = 0.0
+        if self.following_distance < MIN_FOLLOW_DISTANCE:
+            distance_error = MIN_FOLLOW_DISTANCE - self.following_distance
+        elif self.following_distance > MAX_FOLLOW_DISTANCE:
+            distance_error = self.following_distance - MAX_FOLLOW_DISTANCE
+        
+        speed_penalty = SPEED_PENALTY_WEIGHT * (speed_error ** 2)
+        distance_penalty = DISTANCE_PENALTY_WEIGHT * (distance_error ** 2)
 
+        reward = -(speed_penalty + distance_penalty)
+            
         # Increment the step index to move to the next timestep in the episode.
         self.step_idx += 1
         terminated = (self.step_idx >= self.episode_len)
@@ -223,8 +243,13 @@ class TrainEnv(gym.Env):
             self.current_speed,
             self.lead_speed,
             self.following_distance
-        ], dtype=np.float32)
-        info = {"speed_error": error}
+            ], dtype=np.float32)
+        
+        info = {
+            "speed_error": speed_error, 
+            "distance_error": distance_error
+            }
+        
         return obs, reward, terminated, truncated, info
 
 
@@ -250,7 +275,7 @@ class TestEnv(gym.Env):
             low=np.array([0.0, 0.0, 0.0]),
             high=np.array([50.0, 50.0, 100.0]),
             dtype=np.float32
-        )
+            )
 
         self.idx = 0
         
@@ -281,7 +306,7 @@ class TestEnv(gym.Env):
             self.current_speed,
             self.lead_speed,
             self.following_distance
-        ], dtype=np.float32)
+            ], dtype=np.float32)
         
         info = {}
         return obs, info
@@ -302,10 +327,28 @@ class TestEnv(gym.Env):
         if self.current_speed < 0:
             self.current_speed = 0.0
 
-        # Compute the reward based on the difference between current speed and lead speed
-        error = abs(self.current_speed - self.lead_speed)
-        # reward = -error
-        reward = -(error ** 2)
+        # Compute the reward based on both speed tracking and following distance.
+        #
+        # The agent is rewarded for matching the lead vehicle's speed while
+        # maintaining a safe following distance. A target following distance of
+        # 5–30 meters is considered acceptable. If the ego vehicle gets closer
+        # than 5 meters or farther than 30 meters, a distance penalty is applied.
+        #
+        # Squared errors are used so that larger speed or distance deviations
+        # receive disproportionately larger penalties, encouraging the agent to
+        # prioritize correcting significant errors.
+        speed_error = abs(self.current_speed - self.lead_speed)
+        
+        distance_error = 0.0
+        if self.following_distance < MIN_FOLLOW_DISTANCE:
+            distance_error = MIN_FOLLOW_DISTANCE - self.following_distance
+        elif self.following_distance > MAX_FOLLOW_DISTANCE:
+            distance_error = self.following_distance - MAX_FOLLOW_DISTANCE
+            
+        speed_penalty = SPEED_PENALTY_WEIGHT * (speed_error ** 2)
+        distance_penalty = DISTANCE_PENALTY_WEIGHT * (distance_error ** 2)
+        
+        reward = -(speed_penalty + distance_penalty)
 
         self.idx += 1
         terminated = (self.idx >= self.n_steps)
@@ -315,9 +358,12 @@ class TestEnv(gym.Env):
             self.current_speed, 
             self.lead_speed, 
             self.following_distance
-        ], dtype=np.float32)
+            ], dtype=np.float32)
         
-        info = {"speed_error": error}
+        info = {
+            "speed_error": speed_error, 
+            "distance_error": distance_error
+            }
         return obs, reward, terminated, truncated, info
 
 
