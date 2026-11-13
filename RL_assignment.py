@@ -25,6 +25,8 @@ import csv
 DATA_LEN = 1200
 CSV_FILE = "speed_profile.csv"
 
+INITIAL_DISTANCE = 20.0 # meters
+
 # Force-generate a 1200-step sinusoidal + noise speed profile
 speeds = 10 + 5 * np.sin(0.02 * np.arange(DATA_LEN)) + 2 * np.random.randn(DATA_LEN)
 
@@ -119,16 +121,19 @@ class TrainEnv(gym.Env):
 
         # Actions, Observations
         self.action_space = spaces.Box(low=-3.0, high=3.0, shape=(1,), dtype=np.float32)
-        self.observation_space = spaces.Box(low=0.0, high=50.0, shape=(2,), dtype=np.float32)
+        self.observation_space = spaces.Box(
+            low=np.array([0.0, 0.0, 0.0]),
+            high=np.array([50.0, 50.0, 100.0]),
+            dtype=np.float32
+        )
 
         # Episode-specific
         self.current_episode = None
         self.episode_len = 0
         self.step_idx = 0
-        self.current_speed = 0.0
-        self.ref_speed = 0.0
         
-        # Ego vehicle position
+        # Ego vehicle parameters
+        self.current_speed = 0.0
         self.current_position = 0.0
         
         # Lead vehicle parameters
@@ -139,9 +144,6 @@ class TrainEnv(gym.Env):
         self.following_distance = 0.0
 
     # This method is called at the start of each episode. 
-    # It randomly selects a chunk of the speed dataset to use for the episode, 
-    #  initializes the current speed and reference speed, 
-    #  and returns the initial observation.
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         
@@ -151,31 +153,26 @@ class TrainEnv(gym.Env):
         self.episode_len = len(self.current_episode)
         self.step_idx = 0
 
-        # Initialize
+        # Initialize ego vehicle parameters
         self.current_speed = 0.0
         self.current_position = 0.0
 
-        # Use the reference profile as the lead vehicle's speed
+        # The lead vehicle's speed is set to the first value in the full dataset
         self.lead_speed = self.current_episode[self.step_idx]
 
-        # Start the lead vehicle 20 meters ahead
+        # Start the lead vehicle 20 meters ahead of the ego vehicle.
         # We have a target between 5-30 meters, so we can start at 20 meters
-        self.lead_position = 20.0
+        self.lead_position = INITIAL_DISTANCE
 
         # Following distance is the distance between the lead vehicle and the ego vehicle
         self.following_distance = (self.lead_position - self.current_position)
-
-        # The reference speed is the speed of the lead vehicle at the current timestep.
-        self.ref_speed = self.lead_speed
-
+        
         # Give the agent its first observation
-        # Ex. [0,10] if the first reference speed is 10 mph
-        # Observation is a 2D array: [current_speed, reference_speed]
-        #
-        # While the environment is designed to simulate a speed-following task, 
-        # the agent receives observations of its current speed and the reference speed, 
-        # along with rewards based on how closely it follows the reference.
-        obs = np.array([self.current_speed, self.ref_speed], dtype=np.float32)
+        obs = np.array([
+            self.current_speed, 
+            self.lead_speed, 
+            self.following_distance
+        ], dtype=np.float32)
         info = {}
         return obs, info
 
@@ -201,7 +198,7 @@ class TrainEnv(gym.Env):
         # Ego vehicle moves
         self.current_position += self.current_speed * self.delta_t
 
-        # Lead vehicle follows reference speed profile
+        # Lead vehicle accelerates according to the reference speed profile
         self.lead_speed = self.current_episode[self.step_idx]
         self.lead_position += self.lead_speed * self.delta_t
 
@@ -212,8 +209,7 @@ class TrainEnv(gym.Env):
             self.current_speed = 0.0
 
         # Calculate the reward based on the difference between current speed and reference speed
-        self.ref_speed = self.current_episode[self.step_idx]
-        error = abs(self.current_speed - self.ref_speed)
+        error = abs(self.current_speed - self.lead_speed)
         # reward = -error
         reward = -(error ** 2)
 
@@ -223,7 +219,11 @@ class TrainEnv(gym.Env):
         truncated = False
        
         # Return the new observation, reward, and whether the episode has terminated.
-        obs = np.array([self.current_speed, self.ref_speed], dtype=np.float32)
+        obs = np.array([
+            self.current_speed,
+            self.lead_speed,
+            self.following_distance
+        ], dtype=np.float32)
         info = {"speed_error": error}
         return obs, reward, terminated, truncated, info
 
@@ -246,12 +246,16 @@ class TestEnv(gym.Env):
         self.delta_t = delta_t
 
         self.action_space = spaces.Box(low=-3.0, high=3.0, shape=(1,), dtype=np.float32)
-        self.observation_space = spaces.Box(low=0.0, high=50.0, shape=(2,), dtype=np.float32)
+        self.observation_space = spaces.Box(
+            low=np.array([0.0, 0.0, 0.0]),
+            high=np.array([50.0, 50.0, 100.0]),
+            dtype=np.float32
+        )
 
         self.idx = 0
-        self.current_speed = 0.0
         
-        # Ego vehicle position
+        # Initialize ego vehicle parameters
+        self.current_speed = 0.0
         self.current_position = 0.0
 
         # Lead vehicle parameters
@@ -265,19 +269,41 @@ class TestEnv(gym.Env):
         super().reset(seed=seed)
         self.idx = 0
         self.current_speed = 0.0
-        ref_speed = self.full_data[self.idx]
-        obs = np.array([self.current_speed, ref_speed], dtype=np.float32)
+        self.current_position = 0.0
+        
+        # The lead vehicle's speed is set to the first value in the full dataset, and its position is initialized to 20 meters ahead of the ego vehicle. 
+        # The following distance is calculated as the difference between the lead vehicle's position and the ego vehicle's position.
+        self.lead_speed = self.full_data[self.idx]
+        self.lead_position = INITIAL_DISTANCE
+        self.following_distance = (self.lead_position - self.current_position)
+
+        obs = np.array([
+            self.current_speed,
+            self.lead_speed,
+            self.following_distance
+        ], dtype=np.float32)
+        
         info = {}
         return obs, info
 
     def step(self, action):
+        # Ego vehicle accelerates according to the agent's action
         accel = np.clip(action[0], -3.0, 3.0)
         self.current_speed += accel * self.delta_t
+        self.current_position += self.current_speed * self.delta_t
+
+        # Lead vehicle accelerates according to the reference speed profile
+        self.lead_speed = self.full_data[self.idx]
+        self.lead_position += self.lead_speed * self.delta_t
+
+        # Compute following distance
+        self.following_distance = (self.lead_position - self.current_position)
+        
         if self.current_speed < 0:
             self.current_speed = 0.0
 
-        ref_speed = self.full_data[self.idx]
-        error = abs(self.current_speed - ref_speed)
+        # Compute the reward based on the difference between current speed and lead speed
+        error = abs(self.current_speed - self.lead_speed)
         # reward = -error
         reward = -(error ** 2)
 
@@ -285,7 +311,12 @@ class TestEnv(gym.Env):
         terminated = (self.idx >= self.n_steps)
         truncated = False
 
-        obs = np.array([self.current_speed, ref_speed], dtype=np.float32)
+        obs = np.array([
+            self.current_speed, 
+            self.lead_speed, 
+            self.following_distance
+        ], dtype=np.float32)
+        
         info = {"speed_error": error}
         return obs, reward, terminated, truncated, info
 
