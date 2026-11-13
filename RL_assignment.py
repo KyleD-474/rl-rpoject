@@ -127,13 +127,24 @@ class TrainEnv(gym.Env):
         self.step_idx = 0
         self.current_speed = 0.0
         self.ref_speed = 0.0
+        
+        # Ego vehicle position
+        self.current_position = 0.0
+        
+        # Lead vehicle parameters
+        self.lead_speed = 0.0
+        self.lead_position = 0.0
+        
+        # Distance between vehicles
+        self.following_distance = 0.0
 
     # This method is called at the start of each episode. 
     # It randomly selects a chunk of the speed dataset to use for the episode, 
-    # initializes the current speed and reference speed, 
-    # and returns the initial observation.
+    #  initializes the current speed and reference speed, 
+    #  and returns the initial observation.
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
+        
         # Pick random chunk from episodes_list
         ep_idx = np.random.randint(0, self.num_episodes)
         self.current_episode = self.episodes_list[ep_idx]
@@ -141,10 +152,21 @@ class TrainEnv(gym.Env):
         self.step_idx = 0
 
         # Initialize
-        # Set current speed to 0.0 at the start of each episode
-        # Set the first reference speed to the first value of the selected chunk
         self.current_speed = 0.0
-        self.ref_speed = self.current_episode[self.step_idx]
+        self.current_position = 0.0
+
+        # Use the reference profile as the lead vehicle's speed
+        self.lead_speed = self.current_episode[self.step_idx]
+
+        # Start the lead vehicle 20 meters ahead
+        # We have a target between 5-30 meters, so we can start at 20 meters
+        self.lead_position = 20.0
+
+        # Following distance is the distance between the lead vehicle and the ego vehicle
+        self.following_distance = (self.lead_position - self.current_position)
+
+        # The reference speed is the speed of the lead vehicle at the current timestep.
+        self.ref_speed = self.lead_speed
 
         # Give the agent its first observation
         # Ex. [0,10] if the first reference speed is 10 mph
@@ -175,6 +197,17 @@ class TrainEnv(gym.Env):
         # Apply the agent's action (acceleration) to update the current speed
         accel = np.clip(action[0], -3.0, 3.0)
         self.current_speed += accel * self.delta_t
+        
+        # Ego vehicle moves
+        self.current_position += self.current_speed * self.delta_t
+
+        # Lead vehicle follows reference speed profile
+        self.lead_speed = self.current_episode[self.step_idx]
+        self.lead_position += self.lead_speed * self.delta_t
+
+        # Compute following distance
+        self.following_distance = (self.lead_position -self.current_position)
+        
         if self.current_speed < 0:
             self.current_speed = 0.0
 
@@ -217,6 +250,16 @@ class TestEnv(gym.Env):
 
         self.idx = 0
         self.current_speed = 0.0
+        
+        # Ego vehicle position
+        self.current_position = 0.0
+
+        # Lead vehicle parameters
+        self.lead_speed = 0.0
+        self.lead_position = 0.0
+
+        # Distance between vehicles
+        self.following_distance = 0.0
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
