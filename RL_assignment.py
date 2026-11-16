@@ -8,12 +8,19 @@ from stable_baselines3.common.vec_env import DummyVecEnv
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.logger import configure
 
+import random
 import torch
 import torch.nn as nn
 import os
 import time
 import argparse
 import csv
+
+# Set random seeds so training results are reproducible between runs.
+SEED = 47
+random.seed(SEED)
+np.random.seed(SEED)
+torch.manual_seed(SEED)
 
 # ------------------------------------------------------------------------
 # 1) Always create a 1200-step speed dataset
@@ -33,7 +40,7 @@ MIN_FOLLOW_DISTANCE = 5.0  # meters
 MAX_FOLLOW_DISTANCE = 30.0 # meters
 
 # Weights for the penalties in the reward function.
-DISTANCE_PENALTY_WEIGHT = 2.0
+DISTANCE_PENALTY_WEIGHT = 1.0
 SPEED_PENALTY_WEIGHT = 1.0
 
 # The maximum acceleration and deceleration values are set to 2.0 m/s^2 and -2.0 m/s^2, respectively.
@@ -360,8 +367,8 @@ class TestEnv(gym.Env):
         elif self.following_distance > MAX_FOLLOW_DISTANCE:
             distance_error = self.following_distance - MAX_FOLLOW_DISTANCE
             
-        speed_penalty = SPEED_PENALTY_WEIGHT * (speed_error ** 2)
-        distance_penalty = DISTANCE_PENALTY_WEIGHT * (distance_error ** 2)
+        speed_penalty = SPEED_PENALTY_WEIGHT * (speed_error)
+        distance_penalty = DISTANCE_PENALTY_WEIGHT * (distance_error)
         
         reward = -(speed_penalty + distance_penalty)
 
@@ -549,36 +556,80 @@ def main():
     test_env = TestEnv(full_speed_data, delta_t=1.0)
 
     obs, _ = test_env.reset()
-    predicted_speeds = []
-    reference_speeds = []
+    
+    # Store testing data for visualization and analysis.
+    ego_speeds = []
+    lead_speeds = []
+    following_distances = []
+    speed_errors = []
+    distance_errors = []
     rewards = []
 
     for _ in range(DATA_LEN):
         action, _states = model.predict(obs, deterministic=True)
         obs, reward, terminated, truncated, info = test_env.step(action)
-        predicted_speeds.append(obs[0])  # current_speed
-        reference_speeds.append(obs[1])  # reference_speed
+        ego_speeds.append(obs[0])  # current_speed
+        lead_speeds.append(obs[1])  # lead_speed
+        following_distances.append(obs[2])  # ego-to-lead distance
+        speed_errors.append(info["speed_error"]) # speed tracking error
+        distance_errors.append(info["distance_error"]) # distance tracking error
         rewards.append(reward)
         if terminated or truncated:
             break
 
     avg_test_reward = np.mean(rewards)
     print(f"[TEST] Average reward over 1200-step test: {avg_test_reward:.3f}")
+    
+    max_distance_error = max(distance_errors)
+    mean_distance_error = np.mean(distance_errors)
+    percent_in_safe_zone = 100 * np.mean(np.array(distance_errors) == 0)
+    
+    print(f"[TEST] Average reward over 1200-step test: {avg_test_reward:.3f}")
+    print(f"[TEST] Maximum distance error: {max_distance_error:.3f}")
+    print(f"[TEST] Mean distance error: {mean_distance_error:.3f}")
+    print(f"[TEST] Vehicle remained within the desired following distance: {percent_in_safe_zone:.2f}% of the test.")
 
-    # Plot the entire test
-    # Two lines are plotted: the reference speed (dashed) and the predicted speed (solid).
+    # Plot the lead vehicle and ego vehicle speeds over the entire test.
     #
-    # If the two lines overlap closely, it indicates that the agent has learned to 
-    # follow the reference speed profile effectively.
-    #
-    # If the two lines are far apart, it suggests that the agent is not 
-    # accurately following the reference speed.
+    # This plot shows how well the ego vehicle tracks the lead vehicle's
+    # speed throughout the simulation. Close agreement between the two
+    # curves indicates successful speed-following behavior.
     plt.figure(figsize=(10, 5))
-    plt.plot(reference_speeds, label="Reference Speed", linestyle="--")
-    plt.plot(predicted_speeds, label="Predicted Speed", linestyle="-")
+    plt.plot(lead_speeds, label="Lead Vehicle Speed", linestyle="--")
+    plt.plot(ego_speeds, label="Ego Vehicle Speed", linestyle="-")
     plt.xlabel("Timestep")
     plt.ylabel("Speed (m/s)")
     plt.title(f"Test on full 1200-step dataset (chunk_size={chunk_size})")
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+    
+    
+    # Plot the following distance throughout the simulation.
+    #
+    # This plot shows the separation distance between the ego vehicle and
+    # the lead vehicle. The shaded operating region is defined by the safe
+    # following distance bounds in the controller.
+    plt.figure(figsize=(10, 5))
+    plt.plot(following_distances, label="Following Distance")
+    plt.axhline(MIN_FOLLOW_DISTANCE, linestyle="--", label="Minimum Safe Distance")
+    plt.axhline(MAX_FOLLOW_DISTANCE, linestyle="--", label="Maximum Safe Distance")
+    plt.xlabel("Timestep")
+    plt.ylabel("Distance (m)")
+    plt.title("Following Distance Throughout Test")
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+    
+    # Plot the speed tracking error over the entire simulation.
+    #
+    # Smaller values indicate that the ego vehicle is closely matching
+    # the lead vehicle's speed.
+    plt.figure(figsize=(10, 5))
+    plt.plot(speed_errors, label="Speed Error")
+    plt.xlabel("Timestep")
+    plt.ylabel("Absolute Speed Error (m/s)")
+    plt.title("Speed Tracking Error")
     plt.legend()
     plt.tight_layout()
     plt.show()
