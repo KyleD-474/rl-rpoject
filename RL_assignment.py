@@ -18,9 +18,16 @@ import csv
 
 # Set random seeds so training results are reproducible between runs.
 SEED = 47
+
+# Seed Python's random number generator.
 random.seed(SEED)
+
+# Seed NumPy's random number generator.
 np.random.seed(SEED)
+
+# Seed PyTorch's random number generator.
 torch.manual_seed(SEED)
+
 
 # ------------------------------------------------------------------------
 # 1) Always create a 1200-step speed dataset
@@ -46,8 +53,6 @@ SPEED_PENALTY_WEIGHT = 1.0
 # The maximum acceleration and deceleration values are set to 2.0 m/s^2 and -2.0 m/s^2, respectively.
 MAX_ACCELERATION = 2.0    # m/s^2
 MAX_DECELERATION = -2.0   # m/s^2
-
-
 
 
 # Force-generate a 1200-step sinusoidal + noise speed profile
@@ -174,7 +179,9 @@ class TrainEnv(gym.Env):
         super().reset(seed=seed)
         
         # Pick random chunk from episodes_list
-        ep_idx = np.random.randint(0, self.num_episodes)
+        # ep_idx = np.random.randint(0, self.num_episodes)
+        ep_idx = self.np_random.integers(0, self.num_episodes)
+        
         self.current_episode = self.episodes_list[ep_idx]
         self.episode_len = len(self.current_episode)
         self.step_idx = 0
@@ -244,8 +251,8 @@ class TrainEnv(gym.Env):
         elif self.following_distance > MAX_FOLLOW_DISTANCE:
             distance_error = self.following_distance - MAX_FOLLOW_DISTANCE
         
-        speed_penalty = SPEED_PENALTY_WEIGHT * (speed_error ** 2)
-        distance_penalty = DISTANCE_PENALTY_WEIGHT * (distance_error ** 2)
+        speed_penalty = SPEED_PENALTY_WEIGHT * (speed_error)
+        distance_penalty = DISTANCE_PENALTY_WEIGHT * (distance_error)
 
         reward = -(speed_penalty + distance_penalty)
             
@@ -356,9 +363,12 @@ class TestEnv(gym.Env):
         # 5–30 meters is considered acceptable. If the ego vehicle gets closer
         # than 5 meters or farther than 30 meters, a distance penalty is applied.
         #
-        # Squared errors are used so that larger speed or distance deviations
+        # If squared errors are used, larger speed or distance deviations
         # receive disproportionately larger penalties, encouraging the agent to
         # prioritize correcting significant errors.
+        #
+        # If absolute errors are used, the penalty increases linearly with the error magnitude,
+        # providing a more balanced incentive for the agent to minimize both small and large deviations.
         speed_error = abs(self.current_speed - self.lead_speed)
         
         distance_error = 0.0
@@ -426,6 +436,9 @@ class CustomLoggingCallback(BaseCallback):
 # 5) Main: user sets chunk_size from command line, train, then test
 # ------------------------------------------------------------------------
 def main():
+    # Record the program's starting time.
+    start_time = time.perf_counter()
+    
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--output_dir",
@@ -457,6 +470,9 @@ def main():
         return TrainEnv(episodes_list, delta_t=1.0)
 
     train_env = DummyVecEnv([make_train_env])
+
+    # Seed the training environment.
+    train_env.seed(SEED)
 
     # 5C) Build the model (SAC with MlpPolicy)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -515,9 +531,10 @@ def main():
         batch_size=256,
         buffer_size=200000,
         tau=0.005,
-        gamma=0.9,
+        gamma=0.99,
         ent_coef='auto',
-        device=device
+        device=device,
+        seed=SEED
     )
 
     model.set_logger(logger)
@@ -577,7 +594,9 @@ def main():
         if terminated or truncated:
             break
 
+    # Calculate and display average reward, maximum distance error, mean distance error, and percentage of time within safe following distance.
     avg_test_reward = np.mean(rewards)
+    
     print(f"[TEST] Average reward over 1200-step test: {avg_test_reward:.3f}")
     
     max_distance_error = max(distance_errors)
@@ -588,6 +607,14 @@ def main():
     print(f"[TEST] Maximum distance error: {max_distance_error:.3f}")
     print(f"[TEST] Mean distance error: {mean_distance_error:.3f}")
     print(f"[TEST] Vehicle remained within the desired following distance: {percent_in_safe_zone:.2f}% of the test.")
+
+    # Calculate and display total program execution time.
+    end_time = time.perf_counter()
+    execution_time = end_time - start_time
+
+    print(f"\nTotal execution time: {execution_time:.2f} seconds")
+    print(f"Total execution time: {execution_time / 60:.2f} minutes")
+
 
     # Plot the lead vehicle and ego vehicle speeds over the entire test.
     #
