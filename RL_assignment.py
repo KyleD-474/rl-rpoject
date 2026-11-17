@@ -16,17 +16,17 @@ import time
 import argparse
 import csv
 
-# Set random seeds so training results are reproducible between runs.
-SEED = 47
+# # Set random seeds so training results are reproducible between runs.
+# SEED = 47
 
-# Seed Python's random number generator.
-random.seed(SEED)
+# # Seed Python's random number generator.
+# random.seed(SEED)
 
-# Seed NumPy's random number generator.
-np.random.seed(SEED)
+# # Seed NumPy's random number generator.
+# np.random.seed(SEED)
 
-# Seed PyTorch's random number generator.
-torch.manual_seed(SEED)
+# # Seed PyTorch's random number generator.
+# torch.manual_seed(SEED)
 
 
 # ------------------------------------------------------------------------
@@ -151,12 +151,16 @@ class TrainEnv(gym.Env):
         # Restrict the agent's actions to realistic acceleration and deceleration
         #  values (-2 to 2 m/s^2) to better model real vehicle dynamics.
         # I.e. Limit the agent to realistic acceleration and braking commands.
-        self.action_space = spaces.Box(low=MAX_DECELERATION, high=MAX_ACCELERATION, shape=(1,), dtype=np.float32)
+        self.action_space = spaces.Box(
+            low=MAX_DECELERATION, 
+            high=MAX_ACCELERATION, 
+            shape=(1,), 
+            dtype=np.float32)
+        
         self.observation_space = spaces.Box(
-            low=np.array([0.0, 0.0, 0.0]),
-            high=np.array([50.0, 50.0, 100.0]),
-            dtype=np.float32
-            )
+            low=np.array([0.0, 0.0, 0.0], dtype=np.float32),
+            high=np.array([50.0, 50.0, 100.0], dtype=np.float32),
+            dtype=np.float32)
 
         # Episode-specific
         self.current_episode = None
@@ -246,13 +250,18 @@ class TrainEnv(gym.Env):
         speed_error = abs(self.current_speed - self.lead_speed)
         
         distance_error = 0.0
+        
+        # The agent is rewarded for matching the lead vehicle's speed while maintaining a safe following distance. 
+        # A target following distance of 5–30 meters is considered acceptable. 
+        # If the ego vehicle gets closer than 5 meters or farther than 30 meters, a distance penalty is applied.
         if self.following_distance < MIN_FOLLOW_DISTANCE:
             distance_error = MIN_FOLLOW_DISTANCE - self.following_distance
+            
         elif self.following_distance > MAX_FOLLOW_DISTANCE:
             distance_error = self.following_distance - MAX_FOLLOW_DISTANCE
         
-        speed_penalty = SPEED_PENALTY_WEIGHT * (speed_error)
-        distance_penalty = DISTANCE_PENALTY_WEIGHT * (distance_error)
+        speed_penalty = SPEED_PENALTY_WEIGHT * speed_error
+        distance_penalty = DISTANCE_PENALTY_WEIGHT * distance_error
 
         reward = -(speed_penalty + distance_penalty)
             
@@ -296,12 +305,16 @@ class TestEnv(gym.Env):
         # Restrict the agent's actions to realistic acceleration and deceleration
         #  values (-2 to 2 m/s^2) to better model real vehicle dynamics.
         # I.e. Limit the agent to realistic acceleration and braking commands.
-        self.action_space = spaces.Box(low=MAX_DECELERATION, high=MAX_ACCELERATION, shape=(1,), dtype=np.float32)
+        self.action_space = spaces.Box(
+            low=MAX_DECELERATION, 
+            high=MAX_ACCELERATION, 
+            shape=(1,), 
+            dtype=np.float32)
+        
         self.observation_space = spaces.Box(
-            low=np.array([0.0, 0.0, 0.0]),
-            high=np.array([50.0, 50.0, 100.0]),
-            dtype=np.float32
-            )
+            low=np.array([0.0, 0.0, 0.0], dtype=np.float32),
+            high=np.array([50.0, 50.0, 100.0], dtype=np.float32),
+            dtype=np.float32)
 
         self.idx = 0
         
@@ -377,8 +390,8 @@ class TestEnv(gym.Env):
         elif self.following_distance > MAX_FOLLOW_DISTANCE:
             distance_error = self.following_distance - MAX_FOLLOW_DISTANCE
             
-        speed_penalty = SPEED_PENALTY_WEIGHT * (speed_error)
-        distance_penalty = DISTANCE_PENALTY_WEIGHT * (distance_error)
+        speed_penalty = SPEED_PENALTY_WEIGHT * speed_error
+        distance_penalty = DISTANCE_PENALTY_WEIGHT * distance_error
         
         reward = -(speed_penalty + distance_penalty)
 
@@ -436,9 +449,6 @@ class CustomLoggingCallback(BaseCallback):
 # 5) Main: user sets chunk_size from command line, train, then test
 # ------------------------------------------------------------------------
 def main():
-    # Record the program's starting time.
-    start_time = time.perf_counter()
-    
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--output_dir",
@@ -472,7 +482,7 @@ def main():
     train_env = DummyVecEnv([make_train_env])
 
     # Seed the training environment.
-    train_env.seed(SEED)
+    # train_env.seed(SEED)
 
     # 5C) Build the model (SAC with MlpPolicy)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -534,7 +544,7 @@ def main():
         gamma=0.99,
         ent_coef='auto',
         device=device,
-        seed=SEED
+        # seed=SEED
     )
 
     model.set_logger(logger)
@@ -596,9 +606,7 @@ def main():
 
     # Calculate and display average reward, maximum distance error, mean distance error, and percentage of time within safe following distance.
     avg_test_reward = np.mean(rewards)
-    
-    print(f"[TEST] Average reward over 1200-step test: {avg_test_reward:.3f}")
-    
+        
     max_distance_error = max(distance_errors)
     mean_distance_error = np.mean(distance_errors)
     percent_in_safe_zone = 100 * np.mean(np.array(distance_errors) == 0)
@@ -607,15 +615,7 @@ def main():
     print(f"[TEST] Maximum distance error: {max_distance_error:.3f}")
     print(f"[TEST] Mean distance error: {mean_distance_error:.3f}")
     print(f"[TEST] Vehicle remained within the desired following distance: {percent_in_safe_zone:.2f}% of the test.")
-
-    # Calculate and display total program execution time.
-    end_time = time.perf_counter()
-    execution_time = end_time - start_time
-
-    print(f"\nTotal execution time: {execution_time:.2f} seconds")
-    print(f"Total execution time: {execution_time / 60:.2f} minutes")
-
-
+    
     # Plot the lead vehicle and ego vehicle speeds over the entire test.
     #
     # This plot shows how well the ego vehicle tracks the lead vehicle's
