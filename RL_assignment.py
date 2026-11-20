@@ -15,6 +15,7 @@ import os
 import time
 import argparse
 import csv
+import sys
 
 # # Set random seeds so training results are reproducible between runs.
 # SEED = 47
@@ -35,7 +36,6 @@ import csv
 # The time step for the simulation is set to 1 second, meaning that each step in the dataset represents a 1-second interval.
 DELTA_T = 1.0  # seconds
 
-# We have a target between 5-30 meters.
 # Start the lead vehicle 20 meters ahead of the ego vehicle for a nice in-between initialization.
 INITIAL_DISTANCE = 20.0    # meters
 
@@ -43,12 +43,6 @@ INITIAL_DISTANCE = 20.0    # meters
 VERY_MIN_FOLLOW_DISTANCE = 2.0  # meters
 MIN_FOLLOW_DISTANCE = 5.0  # meters
 MAX_FOLLOW_DISTANCE = 30.0 # meters
-
-# The agent is rewarded for maintaining a safe following distance.
-SAFE_ZONE_BONUS = 10.0 
-
-# Additional reward for staying in the preferred following distance range.
-PREFERRED_DISTANCE_BONUS = 5.0
 
 # Preferred following distance range within the overall safe zone.
 PREFERRED_MIN_FOLLOW_DISTANCE = 15.0  # meters
@@ -60,18 +54,24 @@ TOO_FAR_FOLLOW_DISTANCE = 45.0  # meters
 # Additional penalty applied when the ego vehicle falls excessively far behind.
 TOO_FAR_PENALTY = 25.0
 
+# Penalty applied when the ego vehicle collides with the lead vehicle (i.e., following distance <= 0).
+COLLISION_PENALTY = 100.0 
+
 # Weights for the penalties in the reward function.
 DISTANCE_PENALTY_WEIGHT = 1.0
 SPEED_PENALTY_WEIGHT = 1.0
 WAY_TOO_CLOSE_PENALTY_WEIGHT = 10.0
 TOO_CLOSE_PENALTY_WEIGHT = 4.0
 
+# The agent is rewarded for maintaining a safe following distance.
+SAFE_ZONE_BONUS = 20.0 
+
+# Additional reward for staying in the preferred following distance range.
+PREFERRED_DISTANCE_BONUS = 10.0
+
 # The maximum acceleration and deceleration values are set to 2.0 m/s^2 and -2.0 m/s^2, respectively.
 MAX_ACCELERATION = 2.0    # m/s^2
 MAX_DECELERATION = -2.0   # m/s^2
-
-# Penalty applied when the ego vehicle collides with the lead vehicle (i.e., following distance <= 0).
-COLLISION_PENALTY = 100.0 
 
 # Always create a 1200-step speed dataset
 DATA_LEN = 1200
@@ -124,8 +124,6 @@ class TrainEnv(gym.Env):
         self.delta_t = delta_t
 
         # Actions, Observations
-        # Restrict the agent's actions to realistic acceleration and deceleration
-        #  values (-2 to 2 m/s^2) to better model real vehicle dynamics.
         self.action_space = spaces.Box(
             low=MAX_DECELERATION, 
             high=MAX_ACCELERATION, 
@@ -165,7 +163,7 @@ class TrainEnv(gym.Env):
         self.episode_len = len(self.current_episode)
         self.step_idx = 0
 
-        # Initialize ego vehicle parameters
+        # Ego vehicle parameters
         self.current_speed = 0.0
         self.current_position = 0.0
 
@@ -224,7 +222,7 @@ class TrainEnv(gym.Env):
         elif self.following_distance < MIN_FOLLOW_DISTANCE:
             distance_error =  TOO_CLOSE_PENALTY_WEIGHT * (MIN_FOLLOW_DISTANCE - self.following_distance)
         elif self.following_distance > MAX_FOLLOW_DISTANCE:
-            distance_error = self.following_distance - MAX_FOLLOW_DISTANCE
+            distance_error = 2 * (self.following_distance - MAX_FOLLOW_DISTANCE)
 
         # The agent is rewarded for maintaining a safe following distance.
         safe_bonus = 0.0
@@ -294,9 +292,6 @@ class TestEnv(gym.Env):
         self.n_steps = len(full_data)
         self.delta_t = delta_t
 
-        # Restrict the agent's actions to realistic acceleration and deceleration
-        #  values (-2 to 2 m/s^2) to better model real vehicle dynamics.
-        # I.e. Limit the agent to realistic acceleration and braking commands.
         self.action_space = spaces.Box(
             low=MAX_DECELERATION, 
             high=MAX_ACCELERATION, 
@@ -310,7 +305,7 @@ class TestEnv(gym.Env):
 
         self.idx = 0
         
-        # Initialize ego vehicle parameters
+        # Ego vehicle parameters
         self.current_speed = 0.0
         self.current_position = 0.0
 
@@ -373,7 +368,7 @@ class TestEnv(gym.Env):
         elif self.following_distance < MIN_FOLLOW_DISTANCE:
             distance_error =  TOO_CLOSE_PENALTY_WEIGHT * (MIN_FOLLOW_DISTANCE - self.following_distance)
         elif self.following_distance > MAX_FOLLOW_DISTANCE:
-            distance_error = self.following_distance - MAX_FOLLOW_DISTANCE
+            distance_error = 2 * (self.following_distance - MAX_FOLLOW_DISTANCE)
 
         # The agent is rewarded for maintaining a safe following distance.
         safe_bonus = 0.0
@@ -424,10 +419,11 @@ class TestEnv(gym.Env):
 
 
 # ------------------------------------------------------------------------
-# 4) CustomLoggingCallback (optional)
+# 4) Utility Classes: Logging and Callbacks
 # ------------------------------------------------------------------------
 from stable_baselines3.common.callbacks import BaseCallback
 
+# Utility class to log average reward at the end of each episode during training.
 class CustomLoggingCallback(BaseCallback):
     def __init__(self, log_dir, log_name="training_log.csv", verbose=1):
         super().__init__(verbose)
@@ -456,6 +452,21 @@ class CustomLoggingCallback(BaseCallback):
         return True
 
 
+# Utility class to redirect stdout to both console and a log file.
+class ConsoleLogger:
+    def __init__(self, *files):
+        self.files = files
+
+    def write(self, obj):
+        for f in self.files:
+            f.write(obj)
+            f.flush()
+
+    def flush(self):
+        for f in self.files:
+            f.flush()
+
+
 # ------------------------------------------------------------------------
 # 5) Main: user sets chunk_size from command line, train, then test
 # ------------------------------------------------------------------------
@@ -473,7 +484,20 @@ def main():
         default=100,
         help="Episode length for training (e.g. 50, 100, 200)."
     )
+    parser.add_argument(
+        "--results_dir",
+        type=str,
+        default="./results",
+        help="Directory where plots and console output will be saved."
+    )
+
     args = parser.parse_args()
+    results_dir = args.results_dir
+    os.makedirs(results_dir, exist_ok=True)
+
+    # Redirect stdout to both console and a log file.
+    log_file = open(os.path.join(results_dir, "out.txt"), "w")
+    sys.stdout = ConsoleLogger(sys.stdout, log_file)
 
     log_dir = args.output_dir
     os.makedirs(log_dir, exist_ok=True)
@@ -583,9 +607,12 @@ def main():
         obs, reward, terminated, truncated, info = test_env.step(action)
         ego_speeds.append(obs[0])  # current_speed
         lead_speeds.append(obs[1])  # lead_speed
-        
+
+        signed_speed_error = obs[1] - obs[0]   # lead_speed - ego_speed
+        speed_errors.append(signed_speed_error) # signed speed tracking error (positive if ego is slower than lead)
+
         following_distances.append(obs[2])  # ego-to-lead distance
-        speed_errors.append(info["speed_error"]) # speed tracking error
+        
         distance_errors.append(info["distance_error"]) # distance tracking error
         accelerations.append(info["acceleration"]) # acceleration applied by the agent for jerk calculation
         rewards.append(reward)
@@ -603,6 +630,7 @@ def main():
     jerks = np.insert(jerks, 0, 0.0)
 
     mean_jerk = np.mean(jerks)
+    mean_absolute_jerk = np.mean(np.abs(jerks))
     variance_jerk = np.var(jerks)
 
 
@@ -612,29 +640,44 @@ def main():
     max_distance_error = max(distance_errors)
     mean_distance_error = np.mean(distance_errors)
 
+    mean_speed_error = np.mean(speed_errors)
+    max_speed_error = np.max(speed_errors)
+
     percent_in_safe_zone = 100 * np.mean(np.array(distance_errors) == 0)
     
     print(f"[TEST] Average reward over 1200-step test: {avg_test_reward:.3f}")
-    print(f"[TEST] Maximum distance error: {max_distance_error:.3f}")
-    print(f"[TEST] Mean distance error: {mean_distance_error:.3f}")
-    print(f"[TEST] Vehicle remained within the desired following distance: {percent_in_safe_zone:.2f}% of the test.")
+
+    print(f"[TEST] Mean speed error: {mean_speed_error:.3f}")
+    print(f"[TEST] Maximum speed error: {max_speed_error:.3f}")
 
     print(f"[TEST] Mean jerk: {mean_jerk:.3f}")
+    print(f"[TEST] Mean absolute jerk: {mean_absolute_jerk:.3f}")
     print(f"[TEST] Variance of jerk: {variance_jerk:.3f}")
+
+    print(f"[TEST] Maximum distance error: {max_distance_error:.3f}")
+    print(f"[TEST] Mean distance error: {mean_distance_error:.3f}")
+
+    print(f"[TEST] Vehicle remained within the desired following distance: {percent_in_safe_zone:.2f}% of the test.")
     
     # Plot the lead vehicle and ego vehicle speeds over the entire test.
     #
     # This plot shows how well the ego vehicle tracks the lead vehicle's
     # speed throughout the simulation. Close agreement between the two
     # curves indicates successful speed-following behavior.1.0
-    plt.figure(figsize=(16, 8))
+    fig = plt.figure(figsize=(16, 8))
+    fig.canvas.manager.set_window_title("Vehicle Speed Comparison")
     plt.plot(lead_speeds, label="Lead Vehicle Speed", linestyle="--")
     plt.plot(ego_speeds, label="Ego Vehicle Speed", linestyle="-")
     plt.xlabel("Timestep")
     plt.ylabel("Speed (m/s)")
-    plt.title(f"Test on full 1200-step dataset (chunk_size={chunk_size})")
+    plt.title("Lead Vehicle Speed vs. Ego Vehicle Speed")
     plt.legend()
     plt.tight_layout()
+    plt.savefig(
+        os.path.join(results_dir, "vehicle_speed.png"),
+        dpi=300,
+        bbox_inches="tight"
+    )
     plt.show()
     
     
@@ -643,7 +686,8 @@ def main():
     # This plot shows the separation distance between the ego vehicle and
     # the lead vehicle. The shaded operating region is defined by the safe
     # following distance bounds in the controller.
-    plt.figure(figsize=(16, 8))
+    fig = plt.figure(figsize=(16, 8))
+    fig.canvas.manager.set_window_title("Following Distance")
     plt.plot(following_distances, label="Following Distance")
     plt.axhline(MIN_FOLLOW_DISTANCE, linestyle="--", label="Minimum Safe Distance")
     plt.axhline(MAX_FOLLOW_DISTANCE, linestyle="--", label="Maximum Safe Distance")
@@ -652,8 +696,66 @@ def main():
     plt.title("Following Distance Throughout Test")
     plt.legend()
     plt.tight_layout()
+    plt.savefig(
+        os.path.join(results_dir, "following_distance.png"),
+        dpi=300,
+        bbox_inches="tight"
+    )
     plt.show()
 
+
+    # Plot the speed tracking error throughout the simulation.
+    #
+    # This plot shows the difference between the ego vehicle speed and
+    # the lead vehicle speed. Values near zero indicate good speed tracking.
+    fig = plt.figure(figsize=(16, 8))
+    fig.canvas.manager.set_window_title("Speed Error")
+    plt.plot(speed_errors, label="Speed Error")
+    plt.axhline(
+        y=0,
+        color="red",
+        linestyle="--",
+        linewidth=1,
+        label="Perfect Speed Match "
+    )
+    plt.xlabel("Timestep")
+    plt.ylabel("Speed Error (m/s)")
+    plt.title("Speed Error Throughout Test")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(
+        os.path.join(results_dir, "speed_error.png"),
+        dpi=300,
+        bbox_inches="tight"
+    )
+    plt.show()
+
+
+    # Plot the jerk throughout the simulation.
+    #
+    # This plot shows the rate of change of acceleration applied by the
+    # controller. Smaller jerk values indicate smoother ride comfort.
+    fig = plt.figure(figsize=(16, 8))
+    fig.canvas.manager.set_window_title("Vehicle Jerk")
+    plt.plot(jerks, label="Vehicle Jerk")
+    plt.axhline(
+        y=0,
+        color="red",
+        linestyle="--",
+        linewidth=1,
+        label="No Jerk"
+    )
+    plt.xlabel("Timestep")
+    plt.ylabel("Jerk (m/s^3)")
+    plt.title("Vehicle Jerk Throughout Test")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(
+        os.path.join(results_dir, "jerk.png"),
+        dpi=300,
+        bbox_inches="tight"
+    )
+    plt.show()
 
 if __name__ == "__main__":
     main()
