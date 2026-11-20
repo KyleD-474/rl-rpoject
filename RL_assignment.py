@@ -39,6 +39,9 @@ import csv
 DATA_LEN = 1200
 CSV_FILE = "speed_profile.csv"
 
+# The time step for the simulation is set to 1 second, meaning that each step in the dataset represents a 1-second interval.
+DELTA_T = 1.0  # seconds
+
 # We have a target between 5-30 meters.
 # Start the lead vehicle 20 meters ahead of the ego vehicle for a nice in-between initialization.
 INITIAL_DISTANCE = 20.0    # meters
@@ -142,7 +145,7 @@ class TrainEnv(gym.Env):
       - reward: -|current_speed - reference_speed|
     """
 
-    def __init__(self, episodes_list, delta_t=1.0):
+    def __init__(self, episodes_list, delta_t=DELTA_T):
         super().__init__()
         self.episodes_list = episodes_list
         self.num_episodes = len(episodes_list)
@@ -285,7 +288,8 @@ class TrainEnv(gym.Env):
         
         info = {
             "speed_error": speed_error, 
-            "distance_error": distance_error
+            "distance_error": distance_error,
+            "acceleration": accel,
             }
         
         return obs, reward, terminated, truncated, info
@@ -302,7 +306,7 @@ class TestEnv(gym.Env):
       - reward: -|current_speed - reference_speed|
     """
 
-    def __init__(self, full_data, delta_t=1.0):
+    def __init__(self, full_data, delta_t=DELTA_T):
         super().__init__()
         self.full_data = full_data
         self.n_steps = len(full_data)
@@ -419,7 +423,8 @@ class TestEnv(gym.Env):
         
         info = {
             "speed_error": speed_error, 
-            "distance_error": distance_error
+            "distance_error": distance_error,
+            "acceleration": accel,
             }
         return obs, reward, terminated, truncated, info
 
@@ -508,9 +513,7 @@ def main():
     # The policy is a neural network that takes the current speed and reference speed 
     # as input and outputs an acceleration action. The architecture of the policy network 
     # is defined by the `policy_kwargs` parameter, which specifies the number of neurons 
-    # in each hidden layer and the activation function to be used.
-    #
-    # The 256,256 is saying that the neural network will have 2 layers with 256 neurons each. 
+    # in each hidden layer and the activation function to be accelerations.append(info["acceleration"]) 2 layers with 256 neurons each. 
     # The activation function is ReLU, which is a common choice for hidden layers in neural networks.
     policy_kwargs = dict(net_arch=[256, 256], activation_fn=nn.ReLU)
 
@@ -602,6 +605,7 @@ def main():
     following_distances = []
     speed_errors = []
     distance_errors = []
+    accelerations = []
     rewards = []
 
     for _ in range(DATA_LEN):
@@ -609,12 +613,31 @@ def main():
         obs, reward, terminated, truncated, info = test_env.step(action)
         ego_speeds.append(obs[0])  # current_speed
         lead_speeds.append(obs[1])  # lead_speed
+        
         following_distances.append(obs[2])  # ego-to-lead distance
         speed_errors.append(info["speed_error"]) # speed tracking error
         distance_errors.append(info["distance_error"]) # distance tracking error
+        accelerations.append(info["acceleration"]) # acceleration applied by the agent for jerk calculation
         rewards.append(reward)
         if terminated or truncated:
             break
+
+    # --------------------------------------------------
+    # Compute jerk statistics.
+    # Jerk = rate of change of acceleration.
+    # Since delta_t = 1 second, jerk is simply the
+    # difference between consecutive acceleration commands.
+    # --------------------------------------------------
+    accelerations = np.array(accelerations)
+
+    jerks = np.diff(accelerations)  / DELTA_T
+
+    # Prepend a zero so jerk has the same length as the test.
+    jerks = np.insert(jerks, 0, 0.0)
+
+    mean_jerk = np.mean(jerks)
+    variance_jerk = np.var(jerks)
+
 
     # Calculate and display average reward, maximum distance error, mean distance error, and percentage of time within safe following distance.
     avg_test_reward = np.mean(rewards)
@@ -627,13 +650,16 @@ def main():
     print(f"[TEST] Maximum distance error: {max_distance_error:.3f}")
     print(f"[TEST] Mean distance error: {mean_distance_error:.3f}")
     print(f"[TEST] Vehicle remained within the desired following distance: {percent_in_safe_zone:.2f}% of the test.")
+
+    print(f"[TEST] Mean jerk: {mean_jerk:.3f}")
+    print(f"[TEST] Variance of jerk: {variance_jerk:.3f}")
     
     # Plot the lead vehicle and ego vehicle speeds over the entire test.
     #
     # This plot shows how well the ego vehicle tracks the lead vehicle's
     # speed throughout the simulation. Close agreement between the two
-    # curves indicates successful speed-following behavior.
-    plt.figure(figsize=(10, 5))
+    # curves indicates successful speed-following behavior.1.0
+    plt.figure(figsize=(16, 8))
     plt.plot(lead_speeds, label="Lead Vehicle Speed", linestyle="--")
     plt.plot(ego_speeds, label="Ego Vehicle Speed", linestyle="-")
     plt.xlabel("Timestep")
@@ -649,26 +675,13 @@ def main():
     # This plot shows the separation distance between the ego vehicle and
     # the lead vehicle. The shaded operating region is defined by the safe
     # following distance bounds in the controller.
-    plt.figure(figsize=(10, 5))
+    plt.figure(figsize=(16, 8))
     plt.plot(following_distances, label="Following Distance")
     plt.axhline(MIN_FOLLOW_DISTANCE, linestyle="--", label="Minimum Safe Distance")
     plt.axhline(MAX_FOLLOW_DISTANCE, linestyle="--", label="Maximum Safe Distance")
     plt.xlabel("Timestep")
     plt.ylabel("Distance (m)")
     plt.title("Following Distance Throughout Test")
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
-    
-    # Plot the speed tracking error over the entire simulation.
-    #
-    # Smaller values indicate that the ego vehicle is closely matching
-    # the lead vehicle's speed.
-    plt.figure(figsize=(10, 5))
-    plt.plot(speed_errors, label="Speed Error")
-    plt.xlabel("Timestep")
-    plt.ylabel("Absolute Speed Error (m/s)")
-    plt.title("Speed Tracking Error")
     plt.legend()
     plt.tight_layout()
     plt.show()
