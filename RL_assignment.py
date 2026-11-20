@@ -43,6 +43,7 @@ CSV_FILE = "speed_profile.csv"
 # Start the lead vehicle 20 meters ahead of the ego vehicle for a nice in-between initialization.
 INITIAL_DISTANCE = 20.0    # meters
 
+VERY_MIN_FOLLOW_DISTANCE = 2.0  # meters
 MIN_FOLLOW_DISTANCE = 5.0  # meters
 MAX_FOLLOW_DISTANCE = 30.0 # meters
 
@@ -254,16 +255,21 @@ class TrainEnv(gym.Env):
         # The agent is rewarded for matching the lead vehicle's speed while maintaining a safe following distance. 
         # A target following distance of 5–30 meters is considered acceptable. 
         # If the ego vehicle gets closer than 5 meters or farther than 30 meters, a distance penalty is applied.
-        if self.following_distance < MIN_FOLLOW_DISTANCE:
-            distance_error = MIN_FOLLOW_DISTANCE - self.following_distance
-            
+        if self.following_distance < VERY_MIN_FOLLOW_DISTANCE:
+            distance_error = 10 * (VERY_MIN_FOLLOW_DISTANCE - self.following_distance)
+        elif self.following_distance < MIN_FOLLOW_DISTANCE:
+            distance_error = 4 * (MIN_FOLLOW_DISTANCE - self.following_distance)
         elif self.following_distance > MAX_FOLLOW_DISTANCE:
             distance_error = self.following_distance - MAX_FOLLOW_DISTANCE
+
+        collision_penalty = 0.0
+        if self.following_distance <= 0:
+            collision_penalty = 1000.0
         
         speed_penalty = SPEED_PENALTY_WEIGHT * speed_error
         distance_penalty = DISTANCE_PENALTY_WEIGHT * distance_error
 
-        reward = -(speed_penalty + distance_penalty)
+        reward = -(speed_penalty + distance_penalty + collision_penalty)
             
         # Increment the step index to move to the next timestep in the episode.
         self.step_idx += 1
@@ -385,15 +391,21 @@ class TestEnv(gym.Env):
         speed_error = abs(self.current_speed - self.lead_speed)
         
         distance_error = 0.0
-        if self.following_distance < MIN_FOLLOW_DISTANCE:
-            distance_error = MIN_FOLLOW_DISTANCE - self.following_distance
+        if self.following_distance < VERY_MIN_FOLLOW_DISTANCE:
+            distance_error = 10 * (VERY_MIN_FOLLOW_DISTANCE - self.following_distance)
+        elif self.following_distance < MIN_FOLLOW_DISTANCE:
+            distance_error = 4 * (MIN_FOLLOW_DISTANCE - self.following_distance)
         elif self.following_distance > MAX_FOLLOW_DISTANCE:
             distance_error = self.following_distance - MAX_FOLLOW_DISTANCE
-            
+        
+        collision_penalty = 0.0
+        if self.following_distance <= 0:
+            collision_penalty = 1000.0
+        
         speed_penalty = SPEED_PENALTY_WEIGHT * speed_error
         distance_penalty = DISTANCE_PENALTY_WEIGHT * distance_error
-        
-        reward = -(speed_penalty + distance_penalty)
+
+        reward = -(speed_penalty + distance_penalty + collision_penalty)
 
         self.idx += 1
         terminated = (self.idx >= self.n_steps)
