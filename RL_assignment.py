@@ -30,15 +30,8 @@ import csv
 
 
 # ------------------------------------------------------------------------
-# 1) Always create a 1200-step speed dataset
-###
-# This is creating fake data to simulate a car driving through changing speeds
-# Creates 1200 steps of speed data with a sinusoidal pattern and some random noise
-# The speed varies between approximately 5 and 15 m/s, with some random fluctuations.
+# 1) Constnts
 # ------------------------------------------------------------------------
-DATA_LEN = 1200
-CSV_FILE = "speed_profile.csv"
-
 # The time step for the simulation is set to 1 second, meaning that each step in the dataset represents a 1-second interval.
 DELTA_T = 1.0  # seconds
 
@@ -46,18 +39,43 @@ DELTA_T = 1.0  # seconds
 # Start the lead vehicle 20 meters ahead of the ego vehicle for a nice in-between initialization.
 INITIAL_DISTANCE = 20.0    # meters
 
+# Follow distance parameters for the reward function.
 VERY_MIN_FOLLOW_DISTANCE = 2.0  # meters
 MIN_FOLLOW_DISTANCE = 5.0  # meters
 MAX_FOLLOW_DISTANCE = 30.0 # meters
 
+# The agent is rewarded for maintaining a safe following distance.
+SAFE_ZONE_BONUS = 10.0 
+
+# Additional reward for staying in the preferred following distance range.
+PREFERRED_DISTANCE_BONUS = 5.0
+
+# Preferred following distance range within the overall safe zone.
+PREFERRED_MIN_FOLLOW_DISTANCE = 15.0  # meters
+PREFERRED_MAX_FOLLOW_DISTANCE = 20.0  # meters
+
+# Following distances greater than this are considered excessively far.
+TOO_FAR_FOLLOW_DISTANCE = 45.0  # meters
+
+# Additional penalty applied when the ego vehicle falls excessively far behind.
+TOO_FAR_PENALTY = 25.0
+
 # Weights for the penalties in the reward function.
 DISTANCE_PENALTY_WEIGHT = 1.0
 SPEED_PENALTY_WEIGHT = 1.0
+WAY_TOO_CLOSE_PENALTY_WEIGHT = 10.0
+TOO_CLOSE_PENALTY_WEIGHT = 4.0
 
 # The maximum acceleration and deceleration values are set to 2.0 m/s^2 and -2.0 m/s^2, respectively.
 MAX_ACCELERATION = 2.0    # m/s^2
 MAX_DECELERATION = -2.0   # m/s^2
 
+# Penalty applied when the ego vehicle collides with the lead vehicle (i.e., following distance <= 0).
+COLLISION_PENALTY = 100.0 
+
+# Always create a 1200-step speed dataset
+DATA_LEN = 1200
+CSV_FILE = "speed_profile.csv"
 
 # Force-generate a 1200-step sinusoidal + noise speed profile
 speeds = 10 + 5 * np.sin(0.02 * np.arange(DATA_LEN)) + 2 * np.random.randn(DATA_LEN)
@@ -72,36 +90,6 @@ assert len(full_speed_data) == DATA_LEN, "Dataset must be 1200 steps after gener
 
 # ------------------------------------------------------------------------
 # 2) Utility: chunk the dataset, possibly with leftover
-###
-# Instead of using the entire 1200-step dataset as one episode, 
-# we can split it into smaller episodes (chunks) of length `chunk_size`. 
-#
-# This allows the agent to train on shorter sequences, 
-# which can help with learning and generalization. 
-# The last chunk may be shorter if 1200 is not divisible by `chunk_size`.
-#
-# Example: chunk_size=100 -> 12 chunks of 100, leftover=0
-# 'episodes' contains chunks of length chunk_size, except possibly the last one
-# The last chunk may be shorter if 1200 is not divisible by chunk_size
-#
-# Why chunking matters
-# ---------------------
-# Short episodes
-# Pros
-# - learn faster
-# - reset more often
-# - easier problem
-# Cons
-# - agent never sees long-term behavior
-#
-# Long episodes
-# Pros
-# - more realistic
-# Cons
-# - harder to learn
-# - mistakes accumulate
-#
-# That's why you're being asked to compare different chunk sizes.
 # ------------------------------------------------------------------------
 def chunk_into_episodes(data, chunk_size):
     """
@@ -119,30 +107,14 @@ def chunk_into_episodes(data, chunk_size):
 
 # ------------------------------------------------------------------------
 # 3A) Training Environment: picks a random chunk each reset
-#
-# This is the heart of the assignment (Reinforcement Learning). 
-# The agent will be trained in this environment.
-#
-# The environment is designed to simulate a speed-following task, 
-# where the agent must learn to control acceleration to match a reference speed profile. 
-# Each episode consists of a randomly selected chunk of the speed dataset, 
-# and the agent receives observations of its current speed and the reference speed, 
-# along with rewards based on how closely it follows the reference.
-# 
-# The environment defines
-# - observations
-# - actions
-# - rewards
-# - when an episode ends
 # ------------------------------------------------------------------------
 class TrainEnv(gym.Env):
     """
     Speed-following training environment:
       - The dataset is split into episodes of length `chunk_size`.
       - Each reset(), we pick one chunk at random.
-      - action: acceleration in [-3,3]
-      - observation: [current_speed, reference_speed]
-      - reward: -|current_speed - reference_speed|
+      - observation: [current_speed, reference_speed, following_distance]
+      - reward: safe following distance bonus - speed tracking penalty - distance tracking penalty - collision penalty - too far penalty
     """
 
     def __init__(self, episodes_list, delta_t=DELTA_T):
@@ -154,7 +126,6 @@ class TrainEnv(gym.Env):
         # Actions, Observations
         # Restrict the agent's actions to realistic acceleration and deceleration
         #  values (-2 to 2 m/s^2) to better model real vehicle dynamics.
-        # I.e. Limit the agent to realistic acceleration and braking commands.
         self.action_space = spaces.Box(
             low=MAX_DECELERATION, 
             high=MAX_ACCELERATION, 
@@ -187,8 +158,8 @@ class TrainEnv(gym.Env):
         super().reset(seed=seed)
         
         # Pick random chunk from episodes_list
-        # ep_idx = np.random.randint(0, self.num_episodes)
-        ep_idx = self.np_random.integers(0, self.num_episodes)
+        ep_idx = np.random.randint(0, self.num_episodes)
+        # ep_idx = self.np_random.integers(0, self.num_episodes)
         
         self.current_episode = self.episodes_list[ep_idx]
         self.episode_len = len(self.current_episode)
@@ -216,20 +187,8 @@ class TrainEnv(gym.Env):
         info = {}
         return obs, info
 
-
-    # Think of this method as the "physics" of the environment.
-    #
-    # It takes the agent's action (acceleration), updates the current speed,
-    # calculates the reward based on the difference between the current speed and the reference speed,
-    # and returns the new observation, reward, and whether the episode has terminated.
-    #
-    # It advances the world by one timestep, applying the agent's action to update the current speed.
-    #
-    # The step() function is responsible for: 
-    # - updating the speed, 
-    # - computing the reward, 
-    # - advancing to the next time step, and 
-    # - telling the agent whether the episode has finished
+    # This method is called at each timestep of the episode. 
+    # It takes an action (acceleration) as input and updates the environment's state accordingly.
     def step(self, action):
         
         # Clamp the selected acceleration to the allowed physical limits before updating the vehicle's speed.
@@ -246,34 +205,57 @@ class TrainEnv(gym.Env):
 
         # Compute following distance
         self.following_distance = (self.lead_position -self.current_position)
-        
+
+        # Make sure the ego vehicle's speed does not go below zero (i.e., no reverse driving).
         if self.current_speed < 0:
             self.current_speed = 0.0
 
         # Calculate the reward based on the difference between current speed and reference speed
         speed_error = abs(self.current_speed - self.lead_speed)
-        
-        distance_error = 0.0
-        
+
         # The agent is rewarded for matching the lead vehicle's speed while maintaining a safe following distance. 
-        # A target following distance of 5–30 meters is considered acceptable. 
+        # A target following distance of 5-30 meters is considered acceptable. 
         # If the ego vehicle gets closer than 5 meters or farther than 30 meters, a distance penalty is applied.
+        # Also penalize the agent even more for getting too close (less than 2 meters) to the lead vehicle.
+        # Too close penalities are weighted more heavily to encourage the agent to maintain a safe following distance.
+        distance_error = 0.0
         if self.following_distance < VERY_MIN_FOLLOW_DISTANCE:
-            distance_error = 10 * (VERY_MIN_FOLLOW_DISTANCE - self.following_distance)
+            distance_error = WAY_TOO_CLOSE_PENALTY_WEIGHT * (VERY_MIN_FOLLOW_DISTANCE - self.following_distance)
         elif self.following_distance < MIN_FOLLOW_DISTANCE:
-            distance_error = 4 * (MIN_FOLLOW_DISTANCE - self.following_distance)
+            distance_error =  TOO_CLOSE_PENALTY_WEIGHT * (MIN_FOLLOW_DISTANCE - self.following_distance)
         elif self.following_distance > MAX_FOLLOW_DISTANCE:
             distance_error = self.following_distance - MAX_FOLLOW_DISTANCE
 
+        # The agent is rewarded for maintaining a safe following distance.
+        safe_bonus = 0.0
+        if MIN_FOLLOW_DISTANCE <= self.following_distance <= MAX_FOLLOW_DISTANCE:
+            safe_bonus = SAFE_ZONE_BONUS
+            # Provide an additional reward for staying near the middle of the safe following distance range.
+            if PREFERRED_MIN_FOLLOW_DISTANCE <= self.following_distance <= PREFERRED_MAX_FOLLOW_DISTANCE:
+                safe_bonus += PREFERRED_DISTANCE_BONUS
+
+        # The collision penalty is applied if the following distance is less than or equal to zero, 
+        # indicating a collision with the lead vehicle.
         collision_penalty = 0.0
         if self.following_distance <= 0:
-            collision_penalty = 1000.0
-        
+            collision_penalty = COLLISION_PENALTY
+
+        # Apply an additional penalty if the ego vehicle falls excessively far behind.
+        too_far_penalty = 0.0
+        if self.following_distance > TOO_FAR_FOLLOW_DISTANCE:
+            too_far_penalty = TOO_FAR_PENALTY
+
         speed_penalty = SPEED_PENALTY_WEIGHT * speed_error
         distance_penalty = DISTANCE_PENALTY_WEIGHT * distance_error
 
-        reward = -(speed_penalty + distance_penalty + collision_penalty)
-            
+        reward = ( 
+            safe_bonus
+            - speed_penalty 
+            - distance_penalty 
+            - collision_penalty
+            - too_far_penalty
+        )
+
         # Increment the step index to move to the next timestep in the episode.
         self.step_idx += 1
         terminated = (self.step_idx >= self.episode_len)
@@ -345,8 +327,6 @@ class TestEnv(gym.Env):
         self.current_speed = 0.0
         self.current_position = 0.0
         
-        # The lead vehicle's speed is set to the first value in the full dataset, and its position is initialized to 20 meters ahead of the ego vehicle. 
-        # The following distance is calculated as the difference between the lead vehicle's position and the ego vehicle's position.
         self.lead_speed = self.full_data[self.idx]
         self.lead_position = INITIAL_DISTANCE
         self.following_distance = (self.lead_position - self.current_position)
@@ -379,37 +359,51 @@ class TestEnv(gym.Env):
         if self.current_speed < 0:
             self.current_speed = 0.0
 
-        # Compute the reward based on both speed tracking and following distance.
-        #
-        # The agent is rewarded for matching the lead vehicle's speed while
-        # maintaining a safe following distance. A target following distance of
-        # 5–30 meters is considered acceptable. If the ego vehicle gets closer
-        # than 5 meters or farther than 30 meters, a distance penalty is applied.
-        #
-        # If squared errors are used, larger speed or distance deviations
-        # receive disproportionately larger penalties, encouraging the agent to
-        # prioritize correcting significant errors.
-        #
-        # If absolute errors are used, the penalty increases linearly with the error magnitude,
-        # providing a more balanced incentive for the agent to minimize both small and large deviations.
+        # Calculate the reward based on the difference between current speed and reference speed
         speed_error = abs(self.current_speed - self.lead_speed)
-        
+
+        # The agent is rewarded for matching the lead vehicle's speed while maintaining a safe following distance. 
+        # A target following distance of 5-30 meters is considered acceptable. 
+        # If the ego vehicle gets closer than 5 meters or farther than 30 meters, a distance penalty is applied.
+        # Also penalize the agent even more for getting too close (less than 2 meters) to the lead vehicle.
+        # Too close penalities are weighted more heavily to encourage the agent to maintain a safe following distance.
         distance_error = 0.0
         if self.following_distance < VERY_MIN_FOLLOW_DISTANCE:
-            distance_error = 10 * (VERY_MIN_FOLLOW_DISTANCE - self.following_distance)
+            distance_error = WAY_TOO_CLOSE_PENALTY_WEIGHT * (VERY_MIN_FOLLOW_DISTANCE - self.following_distance)
         elif self.following_distance < MIN_FOLLOW_DISTANCE:
-            distance_error = 4 * (MIN_FOLLOW_DISTANCE - self.following_distance)
+            distance_error =  TOO_CLOSE_PENALTY_WEIGHT * (MIN_FOLLOW_DISTANCE - self.following_distance)
         elif self.following_distance > MAX_FOLLOW_DISTANCE:
             distance_error = self.following_distance - MAX_FOLLOW_DISTANCE
-        
+
+        # The agent is rewarded for maintaining a safe following distance.
+        safe_bonus = 0.0
+        if MIN_FOLLOW_DISTANCE <= self.following_distance <= MAX_FOLLOW_DISTANCE:
+            safe_bonus = SAFE_ZONE_BONUS
+            # Provide an additional reward for staying near the middle of the safe following distance range.
+            if PREFERRED_MIN_FOLLOW_DISTANCE <= self.following_distance <= PREFERRED_MAX_FOLLOW_DISTANCE:
+                safe_bonus += PREFERRED_DISTANCE_BONUS
+
+        # The collision penalty is applied if the following distance is less than or equal to zero, 
+        # indicating a collision with the lead vehicle.
         collision_penalty = 0.0
         if self.following_distance <= 0:
-            collision_penalty = 1000.0
-        
+            collision_penalty = COLLISION_PENALTY
+
+        # Apply an additional penalty if the ego vehicle falls excessively far behind.
+        too_far_penalty = 0.0
+        if self.following_distance > TOO_FAR_FOLLOW_DISTANCE:
+            too_far_penalty = TOO_FAR_PENALTY
+
         speed_penalty = SPEED_PENALTY_WEIGHT * speed_error
         distance_penalty = DISTANCE_PENALTY_WEIGHT * distance_error
 
-        reward = -(speed_penalty + distance_penalty + collision_penalty)
+        reward = ( 
+            safe_bonus
+            - speed_penalty 
+            - distance_penalty 
+            - collision_penalty
+            - too_far_penalty
+        )
 
         self.idx += 1
         terminated = (self.idx >= self.n_steps)
@@ -506,33 +500,9 @@ def main():
     print(f"Training on device: {device}")
 
     # The policy_kwargs dictionary specifies the architecture of the neural network used for the policy.
-    #
-    # In this case, it defines a multi-layer perceptron (MLP) with two hidden layers, 
-    # each containing 256 neurons, and using the ReLU activation function.
-    #
-    # The policy is a neural network that takes the current speed and reference speed 
-    # as input and outputs an acceleration action. The architecture of the policy network 
-    # is defined by the `policy_kwargs` parameter, which specifies the number of neurons 
-    # in each hidden layer and the activation function to be accelerations.append(info["acceleration"]) 2 layers with 256 neurons each. 
-    # The activation function is ReLU, which is a common choice for hidden layers in neural networks.
     policy_kwargs = dict(net_arch=[256, 256], activation_fn=nn.ReLU)
 
     # Build the SAC model with specified hyperparameters. 
-    # The model uses a multi-layer perceptron (MLP) policy with two hidden layers of 256 neurons each 
-    # and ReLU activation functions. 
-    # The learning rate, batch size, buffer size, tau, gamma, and entropy coefficient are set 
-    # to standard values for SAC. 
-    # The model is configured to log training progress to the specified logger.
-    #
-    # A policy is a function that maps observations to actions. 
-    # In this case, the policy is a neural network (MLP) that takes the current speed 
-    # and reference speed as input and outputs an acceleration action.
-    #
-    # In other words, a policy is the agent's "brain" that decides what action to take 
-    # based on the current state of the environment. (I.e., a rule for choosing actions based on observations.)
-    #
-    # Multi-Layer Perceptron (MLP) is a type of neural network that consists of multiple layers of neurons,
-    # where each layer is fully connected to the next one. (I.e., a standard feedforward neural network.)
     # model = SAC(
     #     policy="MlpPolicy",
     #     env=train_env,
@@ -622,14 +592,11 @@ def main():
         if terminated or truncated:
             break
 
-    # --------------------------------------------------
     # Compute jerk statistics.
     # Jerk = rate of change of acceleration.
     # Since delta_t = 1 second, jerk is simply the
     # difference between consecutive acceleration commands.
-    # --------------------------------------------------
     accelerations = np.array(accelerations)
-
     jerks = np.diff(accelerations)  / DELTA_T
 
     # Prepend a zero so jerk has the same length as the test.
@@ -641,9 +608,10 @@ def main():
 
     # Calculate and display average reward, maximum distance error, mean distance error, and percentage of time within safe following distance.
     avg_test_reward = np.mean(rewards)
-        
+
     max_distance_error = max(distance_errors)
     mean_distance_error = np.mean(distance_errors)
+
     percent_in_safe_zone = 100 * np.mean(np.array(distance_errors) == 0)
     
     print(f"[TEST] Average reward over 1200-step test: {avg_test_reward:.3f}")
