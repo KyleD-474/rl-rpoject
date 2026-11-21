@@ -1,3 +1,5 @@
 logs_chunk_training/
 .vscode/
-
+results/
+__pycache__/
+tmp/

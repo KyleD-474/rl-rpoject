@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import gymnasium as gym
 from gymnasium import spaces
 from stable_baselines3 import SAC
+from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.logger import configure
@@ -94,14 +95,11 @@ assert len(full_speed_data) == DATA_LEN, "Dataset must be 1200 steps."
 
 # Old random speed profile generation code (commented out) for reference. The current implementation uses a pre-generated CSV file for the speed profile.
 # CSV_FILE = "speed_profile.csv"
-
 # # Force-generate a 1200-step sinusoidal + noise speed profile
 # speeds = 10 + 5 * np.sin(0.02 * np.arange(DATA_LEN)) + 2 * np.random.randn(DATA_LEN)
-
 # df_fake = pd.DataFrame({"speed": speeds})
 # df_fake.to_csv(CSV_FILE, index=False)
 # print(f"Created {CSV_FILE} with {DATA_LEN} steps.")
-
 # df = pd.read_csv(CSV_FILE)
 # full_speed_data = df["speed"].values
 # assert len(full_speed_data) == DATA_LEN, "Dataset must be 1200 steps after generation."
@@ -475,7 +473,6 @@ class TestEnv(gym.Env):
 # ------------------------------------------------------------------------
 # 4) Utility Classes: Logging and Callbacks
 # ------------------------------------------------------------------------
-from stable_baselines3.common.callbacks import BaseCallback
 
 # Utility class to log average reward at the end of each episode during training.
 class CustomLoggingCallback(BaseCallback):
@@ -592,19 +589,37 @@ def main():
     t = 0.005
 
     # Build the SAC model with specified hyperparameters. 
-    model = SAC(
+    # model = SAC(
+    #     policy="MlpPolicy",
+    #     env=train_env,
+    #     verbose=1,
+    #     policy_kwargs=policy_kwargs,
+    #     learning_rate=lr,
+    #     batch_size=256,
+    #     buffer_size=200000,
+    #     tau=t,
+    #     gamma=g,
+    #     ent_coef='auto',
+    #     device=device,
+    #     seed=SEED
+    # )
+
+    # Build the PPO model with specified hyperparameters
+    model = PPO(
         policy="MlpPolicy",
         env=train_env,
         verbose=1,
         policy_kwargs=policy_kwargs,
         learning_rate=lr,
+        n_steps=2048,
         batch_size=256,
-        buffer_size=200000,
-        tau=t,
+        n_epochs=10,
         gamma=g,
-        ent_coef='auto',
+        gae_lambda=0.95,
+        clip_range=0.2,
+        ent_coef=0.0,
         device=device,
-        seed=SEED
+        seed=SEED,
     )
 
     model.set_logger(logger)
@@ -633,7 +648,8 @@ def main():
     print(f"[INFO] Training finished in {end_time - start_time:.2f}s")
 
     # 5D) Save the model
-    save_path = os.path.join(log_dir, f"sac_speed_follow_chunk{chunk_size}")
+    # save_path = os.path.join(log_dir, f"sac_speed_follow_chunk{chunk_size}")
+    save_path = os.path.join(log_dir, f"ppo_speed_follow_chunk{chunk_size}")
     model.save(save_path)
     print(f"[INFO] Model saved to: {save_path}.zip")
 
@@ -695,7 +711,10 @@ def main():
     max_abs_speed_error = np.max(np.abs(speed_errors))
 
     percent_in_safe_zone = 100 * np.mean(np.array(distance_errors) == 0)
-    
+
+    print(f"[TEST] Requested timesteps: {total_timesteps}")
+    print(f"[TEST] Actual timesteps: {model.num_timesteps}")
+    print("--------------------------------------------------------")
     print(f"[TEST] Mean reward per timestep over 1200-step test: {avg_test_reward:.3f}")
     print("--------------------------------------------------------")
     print(f"[TEST] Mean speed error (m/s): {mean_speed_error:.3f}")
@@ -711,12 +730,14 @@ def main():
     print("--------------------------------------------------------")
     print(f"[TEST] Vehicle remained within the desired following distance: {percent_in_safe_zone:.2f}% of the test.")
     print("--------------------------------------------------------")
+
     print("Hyperparameters:")
     print(f"Learning rate: {lr}")
     print(f"Gamma: {g}")
-    print(f"Tau: {t}")
+    # print(f"Tau: {t}")
     print(f"Chunk size: {chunk_size}")
     print(f"Seed used for RNG: {SEED}")
+    print("Algorithm: PPO")
 
     
     # Plot the lead vehicle and ego vehicle speeds over the entire test.
