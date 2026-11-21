@@ -17,17 +17,17 @@ import argparse
 import csv
 import sys
 
-# # Set random seeds so training results are reproducible between runs.
-# SEED = 47
+# Set random seeds so training results are reproducible between runs.
+SEED = 47
 
-# # Seed Python's random number generator.
-# random.seed(SEED)
+# Seed Python's random number generator.
+random.seed(SEED)
 
-# # Seed NumPy's random number generator.
-# np.random.seed(SEED)
+# Seed NumPy's random number generator.
+np.random.seed(SEED)
 
-# # Seed PyTorch's random number generator.
-# torch.manual_seed(SEED)
+# Seed PyTorch's random number generator.
+torch.manual_seed(SEED)
 
 
 # ------------------------------------------------------------------------
@@ -77,18 +77,34 @@ MAX_DECELERATION = -2.0   # m/s^2
 
 # Always create a 1200-step speed dataset
 DATA_LEN = 1200
-CSV_FILE = "speed_profile.csv"
+CSV_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "speed_profile.csv")
 
-# Force-generate a 1200-step sinusoidal + noise speed profile
-speeds = 10 + 5 * np.sin(0.02 * np.arange(DATA_LEN)) + 2 * np.random.randn(DATA_LEN)
-
-df_fake = pd.DataFrame({"speed": speeds})
-df_fake.to_csv(CSV_FILE, index=False)
-print(f"Created {CSV_FILE} with {DATA_LEN} steps.")
+if not os.path.exists(CSV_FILE):
+    rng = np.random.default_rng(47)
+    speeds = 10 + 5 * np.sin(0.02 * np.arange(DATA_LEN)) + 2 * rng.standard_normal(DATA_LEN)
+    pd.DataFrame({"speed": speeds}).to_csv(CSV_FILE, index=False)
+    print(f"Created {CSV_FILE} with {DATA_LEN} steps.")
+else:
+    print(f"Using existing speed profile: {CSV_FILE}")
 
 df = pd.read_csv(CSV_FILE)
 full_speed_data = df["speed"].values
-assert len(full_speed_data) == DATA_LEN, "Dataset must be 1200 steps after generation."
+assert len(full_speed_data) == DATA_LEN, "Dataset must be 1200 steps."
+
+
+# Old random speed profile generation code (commented out) for reference. The current implementation uses a pre-generated CSV file for the speed profile.
+# CSV_FILE = "speed_profile.csv"
+
+# # Force-generate a 1200-step sinusoidal + noise speed profile
+# speeds = 10 + 5 * np.sin(0.02 * np.arange(DATA_LEN)) + 2 * np.random.randn(DATA_LEN)
+
+# df_fake = pd.DataFrame({"speed": speeds})
+# df_fake.to_csv(CSV_FILE, index=False)
+# print(f"Created {CSV_FILE} with {DATA_LEN} steps.")
+
+# df = pd.read_csv(CSV_FILE)
+# full_speed_data = df["speed"].values
+# assert len(full_speed_data) == DATA_LEN, "Dataset must be 1200 steps after generation."
 
 # Calculate the speed error, distance error, and reward based on the current state of the ego vehicle and the lead vehicle.
 def calculate_errors_and_reward(
@@ -199,11 +215,14 @@ def chunk_into_episodes(data, chunk_size):
 # ------------------------------------------------------------------------
 class TrainEnv(gym.Env):
     """
-    Speed-following training environment:
-      - The dataset is split into episodes of length `chunk_size`.
-      - Each reset(), we pick one chunk at random.
-      - observation: [current_speed, reference_speed, following_distance]
-      - reward: safe following distance bonus - speed tracking penalty - distance tracking penalty - collision penalty - too far penalty
+    Training environment for adaptive cruise control.
+
+    Each episode uses one randomly selected chunk from the lead vehicle's speed
+    profile. The observation is [ego speed, lead speed, following distance],
+    and the action is the ego vehicle's acceleration, clipped to the configured
+    physical limits. The shared `calculate_errors_and_reward` function computes
+    the speed and unweighted distance errors, then combines the safe-distance
+    bonus with speed, weighted distance, collision, and jerk penalties.
     """
 
     def __init__(self, episodes_list, delta_t=DELTA_T):
@@ -245,8 +264,8 @@ class TrainEnv(gym.Env):
         super().reset(seed=seed)
         
         # Pick random chunk from episodes_list
-        ep_idx = np.random.randint(0, self.num_episodes)
-        # ep_idx = self.np_random.integers(0, self.num_episodes)
+        # ep_idx = np.random.randint(0, self.num_episodes)
+        ep_idx = self.np_random.integers(0, self.num_episodes)
         
         self.current_episode = self.episodes_list[ep_idx]
         self.episode_len = len(self.current_episode)
@@ -340,10 +359,14 @@ class TrainEnv(gym.Env):
 # ------------------------------------------------------------------------
 class TestEnv(gym.Env):
     """
-    Speed-following testing environment:
-      - We run through the entire 1200-step dataset in one go.
-      - observation: [current_speed, reference_speed]
-      - reward: -|current_speed - reference_speed|
+    Evaluation environment for adaptive cruise control.
+
+    Each episode runs through the full lead vehicle speed profile in order.
+    The observation is [ego speed, lead speed, following distance], and the
+    action is the ego vehicle's acceleration, clipped to the configured
+    physical limits. It uses the same `calculate_errors_and_reward` function
+    as `TrainEnv`, so evaluation rewards and reported speed and distance errors
+    use the same definitions as training.
     """
 
     def __init__(self, full_data, delta_t=DELTA_T):
@@ -548,7 +571,7 @@ def main():
     train_env = DummyVecEnv([make_train_env])
 
     # Seed the training environment.
-    # train_env.seed(SEED)
+    train_env.seed(SEED)
 
     # 5C) Build the model (SAC with MlpPolicy)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -557,34 +580,31 @@ def main():
     # The policy_kwargs dictionary specifies the architecture of the neural network used for the policy.
     policy_kwargs = dict(net_arch=[256, 256], activation_fn=nn.ReLU)
 
-    # Build the SAC model with specified hyperparameters. 
-    # model = SAC(
-    #     policy="MlpPolicy",
-    #     env=train_env,
-    #     verbose=1,
-    #     policy_kwargs=policy_kwargs,
-    #     learning_rate=0.0003,
-    #     batch_size=256,
-    #     buffer_size=200000,
-    #     tau=0.005,
-    #     gamma=0.99,
-    #     ent_coef='auto',
-    #     device=device
-    # )
     
+    # Original hypoerparmeters for reference:
+    # lr = 0.0003
+    # g = 0.99
+    # t = 0.005
+
+    # Hyperparameters
+    lr = 0.0003
+    g = 0.99
+    t = 0.005
+
+    # Build the SAC model with specified hyperparameters. 
     model = SAC(
         policy="MlpPolicy",
         env=train_env,
         verbose=1,
         policy_kwargs=policy_kwargs,
-        learning_rate=0.0003,
+        learning_rate=lr,
         batch_size=256,
         buffer_size=200000,
-        tau=0.005,
-        gamma=0.99,
+        tau=t,
+        gamma=g,
         ent_coef='auto',
         device=device,
-        # seed=SEED
+        seed=SEED
     )
 
     model.set_logger(logger)
@@ -664,10 +684,8 @@ def main():
     mean_absolute_jerk = np.mean(np.abs(jerks))
     variance_jerk = np.var(jerks)
 
-
     # Calculate and display average reward, maximum distance error, mean distance error, and percentage of time within safe following distance.
     avg_test_reward = np.mean(rewards)
-
 
     mean_distance_error = np.mean(distance_errors)
     max_distance_error = max(distance_errors)
@@ -678,7 +696,7 @@ def main():
 
     percent_in_safe_zone = 100 * np.mean(np.array(distance_errors) == 0)
     
-    print(f"[TEST] Average reward over 1200-step test: {avg_test_reward:.3f}")
+    print(f"[TEST] Mean reward per timestep over 1200-step test: {avg_test_reward:.3f}")
     print("--------------------------------------------------------")
     print(f"[TEST] Mean speed error (m/s): {mean_speed_error:.3f}")
     print(f"[TEST] Mean absolute speed error (m/s): {mean_abs_speed_error:.3f}")
@@ -692,6 +710,14 @@ def main():
     print(f"[TEST] Variance of jerk (m/s^3)^2: {variance_jerk:.3f}")
     print("--------------------------------------------------------")
     print(f"[TEST] Vehicle remained within the desired following distance: {percent_in_safe_zone:.2f}% of the test.")
+    print("--------------------------------------------------------")
+    print("Hyperparameters:")
+    print(f"Learning rate: {lr}")
+    print(f"Gamma: {g}")
+    print(f"Tau: {t}")
+    print(f"Chunk size: {chunk_size}")
+    print(f"Seed used for RNG: {SEED}")
+
     
     # Plot the lead vehicle and ego vehicle speeds over the entire test.
     #
