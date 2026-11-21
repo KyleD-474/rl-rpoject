@@ -1,10 +1,13 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+
 import gymnasium as gym
 from gymnasium import spaces
+
 from stable_baselines3 import SAC
-from stable_baselines3 import PPO
+from stable_baselines3 import TD3
+from stable_baselines3.common.noise import NormalActionNoise
 from stable_baselines3.common.vec_env import DummyVecEnv
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.logger import configure
@@ -32,7 +35,7 @@ torch.manual_seed(SEED)
 
 
 # ------------------------------------------------------------------------
-# 1) Constnts
+# 1) Constants
 # ------------------------------------------------------------------------
 # The time step for the simulation is set to 1 second, meaning that each step in the dataset represents a 1-second interval.
 DELTA_T = 1.0  # seconds
@@ -234,12 +237,14 @@ class TrainEnv(gym.Env):
             low=MAX_DECELERATION, 
             high=MAX_ACCELERATION, 
             shape=(1,), 
-            dtype=np.float32)
+            dtype=np.float32
+        )
         
         self.observation_space = spaces.Box(
             low=np.array([0.0, 0.0, 0.0], dtype=np.float32),
             high=np.array([50.0, 50.0, 100.0], dtype=np.float32),
-            dtype=np.float32)
+            dtype=np.float32
+        )
 
         # Episode-specific
         self.current_episode = None
@@ -377,12 +382,14 @@ class TestEnv(gym.Env):
             low=MAX_DECELERATION, 
             high=MAX_ACCELERATION, 
             shape=(1,), 
-            dtype=np.float32)
+            dtype=np.float32
+        )
         
         self.observation_space = spaces.Box(
             low=np.array([0.0, 0.0, 0.0], dtype=np.float32),
             high=np.array([50.0, 50.0, 100.0], dtype=np.float32),
-            dtype=np.float32)
+            dtype=np.float32
+        )
 
         self.idx = 0
         
@@ -414,7 +421,7 @@ class TestEnv(gym.Env):
             self.current_speed,
             self.lead_speed,
             self.following_distance
-            ], dtype=np.float32)
+        ], dtype=np.float32)
         
         info = {}
         return obs, info
@@ -459,7 +466,7 @@ class TestEnv(gym.Env):
             self.current_speed, 
             self.lead_speed, 
             self.following_distance
-            ], dtype=np.float32)
+        ], dtype=np.float32)
         
         info = {
             "speed_error": terms['speed_error'],
@@ -604,20 +611,26 @@ def main():
     #     seed=SEED
     # )
 
-    # Build the PPO model with specified hyperparameters
-    model = PPO(
+    # TD3 is deterministic, so add action noise to explore during training.
+    action_noise = NormalActionNoise(
+        mean=np.zeros(train_env.action_space.shape),
+        sigma=0.1 * np.ones(train_env.action_space.shape),
+    )
+
+    model = TD3(
         policy="MlpPolicy",
         env=train_env,
         verbose=1,
         policy_kwargs=policy_kwargs,
         learning_rate=lr,
-        n_steps=2048,
+        buffer_size=200_000,
+        learning_starts=1_000,
         batch_size=256,
-        n_epochs=10,
+        tau=t,
         gamma=g,
-        gae_lambda=0.95,
-        clip_range=0.2,
-        ent_coef=0.0,
+        train_freq=1,
+        gradient_steps=1,
+        action_noise=action_noise,
         device=device,
         seed=SEED,
     )
@@ -649,7 +662,7 @@ def main():
 
     # 5D) Save the model
     # save_path = os.path.join(log_dir, f"sac_speed_follow_chunk{chunk_size}")
-    save_path = os.path.join(log_dir, f"ppo_speed_follow_chunk{chunk_size}")
+    save_path = os.path.join(log_dir, f"td3_speed_follow_chunk{chunk_size}")
     model.save(save_path)
     print(f"[INFO] Model saved to: {save_path}.zip")
 
@@ -712,8 +725,8 @@ def main():
 
     percent_in_safe_zone = 100 * np.mean(np.array(distance_errors) == 0)
 
-    print(f"[TEST] Requested timesteps: {total_timesteps}")
-    print(f"[TEST] Actual timesteps: {model.num_timesteps}")
+    # print(f"[TEST] Requested timesteps: {total_timesteps}")
+    # print(f"[TEST] Actual timesteps: {model.num_timesteps}")
     print("--------------------------------------------------------")
     print(f"[TEST] Mean reward per timestep over 1200-step test: {avg_test_reward:.3f}")
     print("--------------------------------------------------------")
@@ -734,10 +747,10 @@ def main():
     print("Hyperparameters:")
     print(f"Learning rate: {lr}")
     print(f"Gamma: {g}")
-    # print(f"Tau: {t}")
+    print(f"Tau: {t}")
     print(f"Chunk size: {chunk_size}")
     print(f"Seed used for RNG: {SEED}")
-    print("Algorithm: PPO")
+    print("Algorithm: TD3")
 
     
     # Plot the lead vehicle and ego vehicle speeds over the entire test.
