@@ -306,9 +306,14 @@ class TrainEnv(gym.Env):
         # Clamp the selected acceleration to the allowed physical limits before updating the vehicle's speed.
         # I.e. Enforce the acceleration limits defined by the environment.
         acceleration = np.clip(action[0], MAX_DECELERATION, MAX_ACCELERATION)
-        
+
         # Ego vehicle accelerates according to the agent's action
         self.current_speed += acceleration * self.delta_t
+
+        # Make sure the ego vehicle's speed does not go below zero (i.e., no reverse driving).
+        if self.current_speed < 0:
+            self.current_speed = 0.0
+        
         self.current_position += self.current_speed * self.delta_t
 
         # Lead vehicle accelerates according to the reference speed profile
@@ -317,10 +322,6 @@ class TrainEnv(gym.Env):
 
         # Compute following distance
         self.following_distance = (self.lead_position -self.current_position)
-
-        # Make sure the ego vehicle's speed does not go below zero (i.e., no reverse driving).
-        if self.current_speed < 0:
-            self.current_speed = 0.0
 
         # Calculate the speed error, distance error, and reward based on the current state of the ego vehicle and the lead vehicle.
         terms = calculate_errors_and_reward(
@@ -433,6 +434,11 @@ class TestEnv(gym.Env):
         
         # Ego vehicle accelerates according to the agent's action
         self.current_speed += acceleration * self.delta_t
+
+        # Make sure the ego vehicle's speed does not go below zero (i.e., no reverse driving).
+        if self.current_speed < 0:
+            self.current_speed = 0.0
+
         self.current_position += self.current_speed * self.delta_t
 
         # Lead vehicle accelerates according to the reference speed profile
@@ -596,44 +602,44 @@ def main():
     t = 0.005
 
     # Build the SAC model with specified hyperparameters. 
-    # model = SAC(
-    #     policy="MlpPolicy",
-    #     env=train_env,
-    #     verbose=1,
-    #     policy_kwargs=policy_kwargs,
-    #     learning_rate=lr,
-    #     batch_size=256,
-    #     buffer_size=200000,
-    #     tau=t,
-    #     gamma=g,
-    #     ent_coef='auto',
-    #     device=device,
-    #     seed=SEED
-    # )
-
-    # TD3 is deterministic, so add action noise to explore during training.
-    action_noise = NormalActionNoise(
-        mean=np.zeros(train_env.action_space.shape),
-        sigma=0.1 * np.ones(train_env.action_space.shape),
-    )
-
-    model = TD3(
+    model = SAC(
         policy="MlpPolicy",
         env=train_env,
         verbose=1,
         policy_kwargs=policy_kwargs,
         learning_rate=lr,
-        buffer_size=200_000,
-        learning_starts=1_000,
         batch_size=256,
+        buffer_size=200000,
         tau=t,
         gamma=g,
-        train_freq=1,
-        gradient_steps=1,
-        action_noise=action_noise,
+        ent_coef='auto',
         device=device,
-        seed=SEED,
+        seed=SEED
     )
+
+    # TD3 is deterministic, so add action noise to explore during training.
+    # action_noise = NormalActionNoise(
+    #     mean=np.zeros(train_env.action_space.shape),
+    #     sigma=0.1 * np.ones(train_env.action_space.shape),
+    # )
+
+    # model = TD3(
+    #     policy="MlpPolicy",
+    #     env=train_env,
+    #     verbose=1,
+    #     policy_kwargs=policy_kwargs,
+    #     learning_rate=lr,
+    #     buffer_size=200_000,
+    #     learning_starts=1_000,
+    #     batch_size=256,
+    #     tau=t,
+    #     gamma=g,
+    #     train_freq=1,
+    #     gradient_steps=1,
+    #     action_noise=action_noise,
+    #     device=device,
+    #     seed=SEED,
+    # )
 
     model.set_logger(logger)
 
@@ -661,8 +667,8 @@ def main():
     print(f"[INFO] Training finished in {end_time - start_time:.2f}s")
 
     # 5D) Save the model
-    # save_path = os.path.join(log_dir, f"sac_speed_follow_chunk{chunk_size}")
-    save_path = os.path.join(log_dir, f"td3_speed_follow_chunk{chunk_size}")
+    save_path = os.path.join(log_dir, f"sac_speed_follow_chunk{chunk_size}")
+    # save_path = os.path.join(log_dir, f"td3_speed_follow_chunk{chunk_size}")
     model.save(save_path)
     print(f"[INFO] Model saved to: {save_path}.zip")
 
@@ -725,8 +731,6 @@ def main():
 
     percent_in_safe_zone = 100 * np.mean(np.array(distance_errors) == 0)
 
-    # print(f"[TEST] Requested timesteps: {total_timesteps}")
-    # print(f"[TEST] Actual timesteps: {model.num_timesteps}")
     print("--------------------------------------------------------")
     print(f"[TEST] Mean reward per timestep over 1200-step test: {avg_test_reward:.3f}")
     print("--------------------------------------------------------")
@@ -750,7 +754,9 @@ def main():
     print(f"Tau: {t}")
     print(f"Chunk size: {chunk_size}")
     print(f"Seed used for RNG: {SEED}")
-    print("Algorithm: TD3")
+    # print("Algorithm: TD3")
+    print("Algorithm: SAC")
+
 
     
     # Plot the lead vehicle and ego vehicle speeds over the entire test.
