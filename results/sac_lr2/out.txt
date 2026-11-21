@@ -1,0 +1,177 @@
+Logging to ./logs_chunk_training
+[INFO] Using chunk_size = 100
+Number of episodes: 12 (some leftover if 1200 not divisible by 100)
+Training on device: cuda
+Using cuda device
+[INFO] Start training for 100000 timesteps...
+---------------------------------
+| reward/            |          |
+|    average_reward  | 2.622872 |
+| time/              |          |
+|    episodes        | 100      |
+|    fps             | 304      |
+|    time_elapsed    | 32       |
+|    total_timesteps | 10000    |
+| train/             |          |
+|    actor_loss      | 6.93e+03 |
+|    critic_loss     | 1.57e+07 |
+|    ent_coef        | 23.5     |
+|    ent_coef_loss   | 0.891    |
+|    learning_rate   | 0.0006   |
+|    n_updates       | 9899     |
+---------------------------------
+----------------------------------
+| reward/            |           |
+|    average_reward  | 20.544033 |
+| time/              |           |
+|    episodes        | 200       |
+|    fps             | 303       |
+|    time_elapsed    | 65        |
+|    total_timesteps | 20000     |
+| train/             |           |
+|    actor_loss      | 795       |
+|    critic_loss     | 3.29e+05  |
+|    ent_coef        | 7.39      |
+|    ent_coef_loss   | 0.274     |
+|    learning_rate   | 0.0006    |
+|    n_updates       | 19899     |
+----------------------------------
+----------------------------------
+| reward/            |           |
+|    average_reward  | 6.6575994 |
+| time/              |           |
+|    episodes        | 300       |
+|    fps             | 302       |
+|    time_elapsed    | 99        |
+|    total_timesteps | 30000     |
+| train/             |           |
+|    actor_loss      | 6.41e+03  |
+|    critic_loss     | 2.34e+07  |
+|    ent_coef        | 6.48      |
+|    ent_coef_loss   | 0.81      |
+|    learning_rate   | 0.0006    |
+|    n_updates       | 29899     |
+----------------------------------
+----------------------------------
+| reward/            |           |
+|    average_reward  | 12.181531 |
+| time/              |           |
+|    episodes        | 400       |
+|    fps             | 302       |
+|    time_elapsed    | 132       |
+|    total_timesteps | 40000     |
+| train/             |           |
+|    actor_loss      | -761      |
+|    critic_loss     | 2.78e+04  |
+|    ent_coef        | 7.5       |
+|    ent_coef_loss   | 0.208     |
+|    learning_rate   | 0.0006    |
+|    n_updates       | 39899     |
+----------------------------------
+----------------------------------
+| reward/            |           |
+|    average_reward  | 17.741056 |
+| time/              |           |
+|    episodes        | 500       |
+|    fps             | 301       |
+|    time_elapsed    | 166       |
+|    total_timesteps | 50000     |
+| train/             |           |
+|    actor_loss      | 855       |
+|    critic_loss     | 2.6e+06   |
+|    ent_coef        | 5.73      |
+|    ent_coef_loss   | 0.126     |
+|    learning_rate   | 0.0006    |
+|    n_updates       | 49899     |
+----------------------------------
+----------------------------------
+| reward/            |           |
+|    average_reward  | 20.396692 |
+| time/              |           |
+|    episodes        | 600       |
+|    fps             | 301       |
+|    time_elapsed    | 198       |
+|    total_timesteps | 60000     |
+| train/             |           |
+|    actor_loss      | 811       |
+|    critic_loss     | 5.4e+04   |
+|    ent_coef        | 5         |
+|    ent_coef_loss   | -0.0266   |
+|    learning_rate   | 0.0006    |
+|    n_updates       | 59899     |
+----------------------------------
+----------------------------------
+| reward/            |           |
+|    average_reward  | 12.200216 |
+| time/              |           |
+|    episodes        | 700       |
+|    fps             | 301       |
+|    time_elapsed    | 232       |
+|    total_timesteps | 70000     |
+| train/             |           |
+|    actor_loss      | -679      |
+|    critic_loss     | 2.17e+04  |
+|    ent_coef        | 3.9       |
+|    ent_coef_loss   | 0.119     |
+|    learning_rate   | 0.0006    |
+|    n_updates       | 69899     |
+----------------------------------
+----------------------------------
+| reward/            |           |
+|    average_reward  | 4.8826733 |
+| time/              |           |
+|    episodes        | 800       |
+|    fps             | 301       |
+|    time_elapsed    | 265       |
+|    total_timesteps | 80000     |
+| train/             |           |
+|    actor_loss      | -727      |
+|    critic_loss     | 3.25e+04  |
+|    ent_coef        | 4.89      |
+|    ent_coef_loss   | 0.197     |
+|    learning_rate   | 0.0006    |
+|    n_updates       | 79899     |
+----------------------------------
+----------------------------------
+| reward/            |           |
+|    average_reward  | 16.667755 |
+| time/              |           |
+|    episodes        | 900       |
+|    fps             | 301       |
+|    time_elapsed    | 298       |
+|    total_timesteps | 90000     |
+| train/             |           |
+|    actor_loss      | -335      |
+|    critic_loss     | 4.66e+04  |
+|    ent_coef        | 3.94      |
+|    ent_coef_loss   | -0.148    |
+|    learning_rate   | 0.0006    |
+|    n_updates       | 89899     |
+----------------------------------
+---------------------------------
+| reward/            |          |
+|    average_reward  | 14.42309 |
+| time/              |          |
+|    episodes        | 1000     |
+|    fps             | 301      |
+|    time_elapsed    | 331      |
+|    total_timesteps | 100000   |
+| train/             |          |
+|    actor_loss      | -516     |
+|    critic_loss     | 8.37e+03 |
+|    ent_coef        | 4.5      |
+|    ent_coef_loss   | 0.365    |
+|    learning_rate   | 0.0006   |
+|    n_updates       | 99899    |
+---------------------------------
+[INFO] Training finished in 331.42s
+[INFO] Model saved to: ./logs_chunk_training/sac_speed_follow_chunk100.zip
+[TEST] Average reward over 1200-step test: 16.257
+[TEST] Mean speed error: -0.010
+[TEST] Maximum speed error: 6.605
+[TEST] Mean jerk: -0.002
+[TEST] Mean absolute jerk: 0.636
+[TEST] Variance of jerk: 0.685
+[TEST] Maximum distance error: 25.882
+[TEST] Mean distance error: 0.802
+[TEST] Vehicle remained within the desired following distance: 84.08% of the test.

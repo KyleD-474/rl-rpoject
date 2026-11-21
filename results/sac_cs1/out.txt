@@ -1,0 +1,337 @@
+Logging to ./logs_chunk_training
+[INFO] Using chunk_size = 50
+Number of episodes: 24 (some leftover if 1200 not divisible by 50)
+Training on device: cuda
+Using cuda device
+[INFO] Start training for 100000 timesteps...
+-----------------------------------
+| reward/            |            |
+|    average_reward  | -40.881012 |
+| time/              |            |
+|    episodes        | 100        |
+|    fps             | 302        |
+|    time_elapsed    | 16         |
+|    total_timesteps | 5000       |
+| train/             |            |
+|    actor_loss      | 3.13e+03   |
+|    critic_loss     | 5.26e+05   |
+|    ent_coef        | 3.5        |
+|    ent_coef_loss   | -1.38      |
+|    learning_rate   | 0.0003     |
+|    n_updates       | 4899       |
+-----------------------------------
+----------------------------------
+| reward/            |           |
+|    average_reward  | 16.547237 |
+| time/              |           |
+|    episodes        | 200       |
+|    fps             | 303       |
+|    time_elapsed    | 32        |
+|    total_timesteps | 10000     |
+| train/             |           |
+|    actor_loss      | 1.69e+03  |
+|    critic_loss     | 1.92e+06  |
+|    ent_coef        | 9.48      |
+|    ent_coef_loss   | -0.585    |
+|    learning_rate   | 0.0003    |
+|    n_updates       | 9899      |
+----------------------------------
+-----------------------------------
+| reward/            |            |
+|    average_reward  | -13.944175 |
+| time/              |            |
+|    episodes        | 300        |
+|    fps             | 302        |
+|    time_elapsed    | 49         |
+|    total_timesteps | 15000      |
+| train/             |            |
+|    actor_loss      | 172        |
+|    critic_loss     | 1.69e+04   |
+|    ent_coef        | 12.1       |
+|    ent_coef_loss   | 0.453      |
+|    learning_rate   | 0.0003     |
+|    n_updates       | 14899      |
+-----------------------------------
+----------------------------------
+| reward/            |           |
+|    average_reward  | -8.741206 |
+| time/              |           |
+|    episodes        | 400       |
+|    fps             | 302       |
+|    time_elapsed    | 66        |
+|    total_timesteps | 20000     |
+| train/             |           |
+|    actor_loss      | -478      |
+|    critic_loss     | 1.71e+04  |
+|    ent_coef        | 10        |
+|    ent_coef_loss   | 0.737     |
+|    learning_rate   | 0.0003    |
+|    n_updates       | 19899     |
+----------------------------------
+---------------------------------
+| reward/            |          |
+|    average_reward  | 17.02488 |
+| time/              |          |
+|    episodes        | 500      |
+|    fps             | 302      |
+|    time_elapsed    | 82       |
+|    total_timesteps | 25000    |
+| train/             |          |
+|    actor_loss      | -205     |
+|    critic_loss     | 3.24e+05 |
+|    ent_coef        | 4.93     |
+|    ent_coef_loss   | -0.244   |
+|    learning_rate   | 0.0003   |
+|    n_updates       | 24899    |
+---------------------------------
+-----------------------------------
+| reward/            |            |
+|    average_reward  | -6.3752723 |
+| time/              |            |
+|    episodes        | 600        |
+|    fps             | 302        |
+|    time_elapsed    | 99         |
+|    total_timesteps | 30000      |
+| train/             |            |
+|    actor_loss      | -311       |
+|    critic_loss     | 2.67e+05   |
+|    ent_coef        | 4.49       |
+|    ent_coef_loss   | 0.078      |
+|    learning_rate   | 0.0003     |
+|    n_updates       | 29899      |
+-----------------------------------
+----------------------------------
+| reward/            |           |
+|    average_reward  | 10.244657 |
+| time/              |           |
+|    episodes        | 700       |
+|    fps             | 302       |
+|    time_elapsed    | 115       |
+|    total_timesteps | 35000     |
+| train/             |           |
+|    actor_loss      | -593      |
+|    critic_loss     | 1.52e+04  |
+|    ent_coef        | 3.82      |
+|    ent_coef_loss   | 0.384     |
+|    learning_rate   | 0.0003    |
+|    n_updates       | 34899     |
+----------------------------------
+-----------------------------------
+| reward/            |            |
+|    average_reward  | -31.172773 |
+| time/              |            |
+|    episodes        | 800        |
+|    fps             | 303        |
+|    time_elapsed    | 131        |
+|    total_timesteps | 40000      |
+| train/             |            |
+|    actor_loss      | -367       |
+|    critic_loss     | 1.03e+05   |
+|    ent_coef        | 3.56       |
+|    ent_coef_loss   | -0.246     |
+|    learning_rate   | 0.0003     |
+|    n_updates       | 39899      |
+-----------------------------------
+-----------------------------------
+| reward/            |            |
+|    average_reward  | -4.9750357 |
+| time/              |            |
+|    episodes        | 900        |
+|    fps             | 302        |
+|    time_elapsed    | 148        |
+|    total_timesteps | 45000      |
+| train/             |            |
+|    actor_loss      | -455       |
+|    critic_loss     | 2.55e+04   |
+|    ent_coef        | 3.21       |
+|    ent_coef_loss   | 0.405      |
+|    learning_rate   | 0.0003     |
+|    n_updates       | 44899      |
+-----------------------------------
+----------------------------------
+| reward/            |           |
+|    average_reward  | -10.09509 |
+| time/              |           |
+|    episodes        | 1000      |
+|    fps             | 302       |
+|    time_elapsed    | 165       |
+|    total_timesteps | 50000     |
+| train/             |           |
+|    actor_loss      | -463      |
+|    critic_loss     | 3.69e+04  |
+|    ent_coef        | 2.85      |
+|    ent_coef_loss   | 0.28      |
+|    learning_rate   | 0.0003    |
+|    n_updates       | 49899     |
+----------------------------------
+----------------------------------
+| reward/            |           |
+|    average_reward  | 19.133862 |
+| time/              |           |
+|    episodes        | 1100      |
+|    fps             | 302       |
+|    time_elapsed    | 181       |
+|    total_timesteps | 55000     |
+| train/             |           |
+|    actor_loss      | -345      |
+|    critic_loss     | 1.21e+04  |
+|    ent_coef        | 2.54      |
+|    ent_coef_loss   | -0.0482   |
+|    learning_rate   | 0.0003    |
+|    n_updates       | 54899     |
+----------------------------------
+-----------------------------------
+| reward/            |            |
+|    average_reward  | -13.797847 |
+| time/              |            |
+|    episodes        | 1200       |
+|    fps             | 303        |
+|    time_elapsed    | 197        |
+|    total_timesteps | 60000      |
+| train/             |            |
+|    actor_loss      | -439       |
+|    critic_loss     | 1.38e+04   |
+|    ent_coef        | 2.39       |
+|    ent_coef_loss   | 0.101      |
+|    learning_rate   | 0.0003     |
+|    n_updates       | 59899      |
+-----------------------------------
+----------------------------------
+| reward/            |           |
+|    average_reward  | 19.646854 |
+| time/              |           |
+|    episodes        | 1300      |
+|    fps             | 303       |
+|    time_elapsed    | 214       |
+|    total_timesteps | 65000     |
+| train/             |           |
+|    actor_loss      | -258      |
+|    critic_loss     | 2.19e+04  |
+|    ent_coef        | 2.55      |
+|    ent_coef_loss   | 0.0346    |
+|    learning_rate   | 0.0003    |
+|    n_updates       | 64899     |
+----------------------------------
+----------------------------------
+| reward/            |           |
+|    average_reward  | -7.997876 |
+| time/              |           |
+|    episodes        | 1400      |
+|    fps             | 303       |
+|    time_elapsed    | 230       |
+|    total_timesteps | 70000     |
+| train/             |           |
+|    actor_loss      | -436      |
+|    critic_loss     | 1.89e+04  |
+|    ent_coef        | 2.62      |
+|    ent_coef_loss   | -0.0544   |
+|    learning_rate   | 0.0003    |
+|    n_updates       | 69899     |
+----------------------------------
+---------------------------------
+| reward/            |          |
+|    average_reward  | 7.975557 |
+| time/              |          |
+|    episodes        | 1500     |
+|    fps             | 303      |
+|    time_elapsed    | 246      |
+|    total_timesteps | 75000    |
+| train/             |          |
+|    actor_loss      | -403     |
+|    critic_loss     | 1.34e+04 |
+|    ent_coef        | 2.65     |
+|    ent_coef_loss   | -0.0115  |
+|    learning_rate   | 0.0003   |
+|    n_updates       | 74899    |
+---------------------------------
+---------------------------------
+| reward/            |          |
+|    average_reward  | 8.449055 |
+| time/              |          |
+|    episodes        | 1600     |
+|    fps             | 303      |
+|    time_elapsed    | 263      |
+|    total_timesteps | 80000    |
+| train/             |          |
+|    actor_loss      | -235     |
+|    critic_loss     | 5.94e+04 |
+|    ent_coef        | 2.64     |
+|    ent_coef_loss   | -0.0701  |
+|    learning_rate   | 0.0003   |
+|    n_updates       | 79899    |
+---------------------------------
+----------------------------------
+| reward/            |           |
+|    average_reward  | -5.220298 |
+| time/              |           |
+|    episodes        | 1700      |
+|    fps             | 304       |
+|    time_elapsed    | 279       |
+|    total_timesteps | 85000     |
+| train/             |           |
+|    actor_loss      | -400      |
+|    critic_loss     | 1.53e+06  |
+|    ent_coef        | 2.65      |
+|    ent_coef_loss   | 0.0204    |
+|    learning_rate   | 0.0003    |
+|    n_updates       | 84899     |
+----------------------------------
+----------------------------------
+| reward/            |           |
+|    average_reward  | 12.554048 |
+| time/              |           |
+|    episodes        | 1800      |
+|    fps             | 304       |
+|    time_elapsed    | 295       |
+|    total_timesteps | 90000     |
+| train/             |           |
+|    actor_loss      | -427      |
+|    critic_loss     | 1.5e+04   |
+|    ent_coef        | 2.8       |
+|    ent_coef_loss   | 0.147     |
+|    learning_rate   | 0.0003    |
+|    n_updates       | 89899     |
+----------------------------------
+----------------------------------
+| reward/            |           |
+|    average_reward  | 11.796004 |
+| time/              |           |
+|    episodes        | 1900      |
+|    fps             | 304       |
+|    time_elapsed    | 311       |
+|    total_timesteps | 95000     |
+| train/             |           |
+|    actor_loss      | -285      |
+|    critic_loss     | 3.47e+04  |
+|    ent_coef        | 2.84      |
+|    ent_coef_loss   | -0.172    |
+|    learning_rate   | 0.0003    |
+|    n_updates       | 94899     |
+----------------------------------
+-----------------------------------
+| reward/            |            |
+|    average_reward  | -11.905936 |
+| time/              |            |
+|    episodes        | 2000       |
+|    fps             | 304        |
+|    time_elapsed    | 328        |
+|    total_timesteps | 100000     |
+| train/             |            |
+|    actor_loss      | -474       |
+|    critic_loss     | 1.03e+04   |
+|    ent_coef        | 2.77       |
+|    ent_coef_loss   | -0.0875    |
+|    learning_rate   | 0.0003     |
+|    n_updates       | 99899      |
+-----------------------------------
+[INFO] Training finished in 328.18s
+[INFO] Model saved to: ./logs_chunk_training/sac_speed_follow_chunk50.zip
+[TEST] Average reward over 1200-step test: 18.751
+[TEST] Mean speed error: -0.010
+[TEST] Maximum speed error: 9.747
+[TEST] Mean jerk: -0.001
+[TEST] Mean absolute jerk: 0.971
+[TEST] Variance of jerk: 1.470
+[TEST] Maximum distance error: 25.181
+[TEST] Mean distance error: 0.102
+[TEST] Vehicle remained within the desired following distance: 98.92% of the test.

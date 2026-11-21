@@ -49,10 +49,10 @@ PREFERRED_MIN_FOLLOW_DISTANCE = 15.0  # meters
 PREFERRED_MAX_FOLLOW_DISTANCE = 20.0  # meters
 
 # Following distances greater than this are considered excessively far.
-TOO_FAR_FOLLOW_DISTANCE = 45.0  # meters
+WAY_TOO_FAR_FOLLOW_DISTANCE = 45.0  # meters
 
 # Additional penalty applied when the ego vehicle falls excessively far behind.
-TOO_FAR_PENALTY = 25.0
+WAY_TOO_FAR_PENALTY = 25.0
 
 # Penalty applied when the ego vehicle collides with the lead vehicle (i.e., following distance <= 0).
 COLLISION_PENALTY = 100.0 
@@ -62,6 +62,8 @@ DISTANCE_PENALTY_WEIGHT = 1.0
 SPEED_PENALTY_WEIGHT = 1.0
 WAY_TOO_CLOSE_PENALTY_WEIGHT = 10.0
 TOO_CLOSE_PENALTY_WEIGHT = 4.0
+TOO_FAR_PENALTY_WEIGHT = 2.0
+JERK_PENALTY_WEIGHT = 1.0
 
 # The agent is rewarded for maintaining a safe following distance.
 SAFE_ZONE_BONUS = 20.0 
@@ -87,6 +89,93 @@ print(f"Created {CSV_FILE} with {DATA_LEN} steps.")
 df = pd.read_csv(CSV_FILE)
 full_speed_data = df["speed"].values
 assert len(full_speed_data) == DATA_LEN, "Dataset must be 1200 steps after generation."
+
+# Calculate the speed error, distance error, and reward based on the current state of the ego vehicle and the lead vehicle.
+def calculate_errors_and_reward(
+    current_speed,
+    lead_speed,
+    following_distance,
+    acceleration,
+    previous_acceleration,
+    delta_t,
+):
+    # Calculate the reward based on the difference between current speed and lead speed
+    speed_error = abs(current_speed - lead_speed)
+
+    # Unweighted error in meters outside the safe range.
+    # 
+    # The agent is rewarded for matching the lead vehicle's speed while maintaining a safe following distance. 
+    # A target following distance of 5-30 meters is considered acceptable. 
+    # If the ego vehicle gets closer than 5 meters or farther than 30 meters, a distance penalty is applied.
+    # Also penalize the agent even more for getting too close (less than 2 meters) to the lead vehicle.
+    # Too close penalities are weighted more heavily to encourage the agent to maintain a safe following distance.
+    if following_distance < MIN_FOLLOW_DISTANCE:
+        distance_error = MIN_FOLLOW_DISTANCE - following_distance
+    elif following_distance > MAX_FOLLOW_DISTANCE:
+        distance_error = following_distance - MAX_FOLLOW_DISTANCE
+    else:
+        distance_error = 0.0
+
+    # Weighted distance penalty for the reward.
+    if following_distance < VERY_MIN_FOLLOW_DISTANCE:
+        distance_penalty = WAY_TOO_CLOSE_PENALTY_WEIGHT * (
+            VERY_MIN_FOLLOW_DISTANCE - following_distance
+        )
+    elif following_distance < MIN_FOLLOW_DISTANCE:
+        distance_penalty = TOO_CLOSE_PENALTY_WEIGHT * (
+            MIN_FOLLOW_DISTANCE - following_distance
+        )
+    elif following_distance > MAX_FOLLOW_DISTANCE:
+        distance_penalty = TOO_FAR_PENALTY_WEIGHT * (
+            following_distance - MAX_FOLLOW_DISTANCE
+        )
+    else:
+        distance_penalty = 0.0
+
+    # Apply an additional penalty if the ego vehicle falls excessively far behind.
+    # This is to counteract the agent's tendency to "give up" and let the lead vehicle get too far ahead.
+    # The collision penalty can also make the agent overly cautious, so this additional penalty encourages the agent to maintain a reasonable following distance.
+    if following_distance > WAY_TOO_FAR_FOLLOW_DISTANCE:
+        distance_penalty += WAY_TOO_FAR_PENALTY
+
+    distance_penalty *= DISTANCE_PENALTY_WEIGHT
+
+    # The agent is rewarded for maintaining a safe following distance.
+    safe_bonus = 0.0
+    if MIN_FOLLOW_DISTANCE <= following_distance <= MAX_FOLLOW_DISTANCE:
+        safe_bonus = SAFE_ZONE_BONUS
+        if PREFERRED_MIN_FOLLOW_DISTANCE <= following_distance <= PREFERRED_MAX_FOLLOW_DISTANCE:
+            safe_bonus += PREFERRED_DISTANCE_BONUS
+
+    # The collision penalty is applied if the following distance is less than or equal to zero, 
+    # indicating a collision with the lead vehicle.
+    collision_penalty = 0.0
+    if following_distance <= 0:
+        collision_penalty = COLLISION_PENALTY
+
+    # Compute jerk from the previous control action.    
+    jerk = abs(acceleration - previous_acceleration) / delta_t
+    jerk_penalty = JERK_PENALTY_WEIGHT * jerk
+
+    # Compute the speed penalty based on the absolute speed error
+    speed_penalty = SPEED_PENALTY_WEIGHT * speed_error
+
+    reward = (
+        safe_bonus
+        - speed_penalty
+        - distance_penalty
+        - collision_penalty
+        - jerk_penalty
+    )
+
+    return {
+        "speed_error": speed_error,
+        "distance_error": distance_error,
+        "distance_penalty": distance_penalty,
+        "jerk": jerk,
+        "reward": reward,
+    }
+
 
 # ------------------------------------------------------------------------
 # 2) Utility: chunk the dataset, possibly with leftover
@@ -167,6 +256,9 @@ class TrainEnv(gym.Env):
         self.current_speed = 0.0
         self.current_position = 0.0
 
+        # Acceleration is initialized to zero at the start of each episode.
+        self.previous_acceleration = 0.0
+
         # The lead vehicle's speed is set to the first value in the full dataset
         self.lead_speed = self.current_episode[self.step_idx]
 
@@ -191,10 +283,10 @@ class TrainEnv(gym.Env):
         
         # Clamp the selected acceleration to the allowed physical limits before updating the vehicle's speed.
         # I.e. Enforce the acceleration limits defined by the environment.
-        accel = np.clip(action[0], MAX_DECELERATION, MAX_ACCELERATION)
+        acceleration = np.clip(action[0], MAX_DECELERATION, MAX_ACCELERATION)
         
         # Ego vehicle accelerates according to the agent's action
-        self.current_speed += accel * self.delta_t
+        self.current_speed += acceleration * self.delta_t
         self.current_position += self.current_speed * self.delta_t
 
         # Lead vehicle accelerates according to the reference speed profile
@@ -208,51 +300,19 @@ class TrainEnv(gym.Env):
         if self.current_speed < 0:
             self.current_speed = 0.0
 
-        # Calculate the reward based on the difference between current speed and reference speed
-        speed_error = abs(self.current_speed - self.lead_speed)
-
-        # The agent is rewarded for matching the lead vehicle's speed while maintaining a safe following distance. 
-        # A target following distance of 5-30 meters is considered acceptable. 
-        # If the ego vehicle gets closer than 5 meters or farther than 30 meters, a distance penalty is applied.
-        # Also penalize the agent even more for getting too close (less than 2 meters) to the lead vehicle.
-        # Too close penalities are weighted more heavily to encourage the agent to maintain a safe following distance.
-        distance_error = 0.0
-        if self.following_distance < VERY_MIN_FOLLOW_DISTANCE:
-            distance_error = WAY_TOO_CLOSE_PENALTY_WEIGHT * (VERY_MIN_FOLLOW_DISTANCE - self.following_distance)
-        elif self.following_distance < MIN_FOLLOW_DISTANCE:
-            distance_error =  TOO_CLOSE_PENALTY_WEIGHT * (MIN_FOLLOW_DISTANCE - self.following_distance)
-        elif self.following_distance > MAX_FOLLOW_DISTANCE:
-            distance_error = 2 * (self.following_distance - MAX_FOLLOW_DISTANCE)
-
-        # The agent is rewarded for maintaining a safe following distance.
-        safe_bonus = 0.0
-        if MIN_FOLLOW_DISTANCE <= self.following_distance <= MAX_FOLLOW_DISTANCE:
-            safe_bonus = SAFE_ZONE_BONUS
-            # Provide an additional reward for staying near the middle of the safe following distance range.
-            if PREFERRED_MIN_FOLLOW_DISTANCE <= self.following_distance <= PREFERRED_MAX_FOLLOW_DISTANCE:
-                safe_bonus += PREFERRED_DISTANCE_BONUS
-
-        # The collision penalty is applied if the following distance is less than or equal to zero, 
-        # indicating a collision with the lead vehicle.
-        collision_penalty = 0.0
-        if self.following_distance <= 0:
-            collision_penalty = COLLISION_PENALTY
-
-        # Apply an additional penalty if the ego vehicle falls excessively far behind.
-        too_far_penalty = 0.0
-        if self.following_distance > TOO_FAR_FOLLOW_DISTANCE:
-            too_far_penalty = TOO_FAR_PENALTY
-
-        speed_penalty = SPEED_PENALTY_WEIGHT * speed_error
-        distance_penalty = DISTANCE_PENALTY_WEIGHT * distance_error
-
-        reward = ( 
-            safe_bonus
-            - speed_penalty 
-            - distance_penalty 
-            - collision_penalty
-            - too_far_penalty
+        # Calculate the speed error, distance error, and reward based on the current state of the ego vehicle and the lead vehicle.
+        terms = calculate_errors_and_reward(
+            current_speed=self.current_speed,
+            lead_speed=self.lead_speed,
+            following_distance=self.following_distance,
+            acceleration=acceleration,
+            previous_acceleration=self.previous_acceleration,
+            delta_t=self.delta_t,
         )
+
+        # Store the current acceleration for the next timestep.
+        self.previous_acceleration = acceleration
+        
 
         # Increment the step index to move to the next timestep in the episode.
         self.step_idx += 1
@@ -264,15 +324,15 @@ class TrainEnv(gym.Env):
             self.current_speed,
             self.lead_speed,
             self.following_distance
-            ], dtype=np.float32)
+        ], dtype=np.float32)
         
         info = {
-            "speed_error": speed_error, 
-            "distance_error": distance_error,
-            "acceleration": accel,
-            }
+            "speed_error": terms["speed_error"],
+            "distance_error": terms["distance_error"],
+            "acceleration": acceleration,
+        }
         
-        return obs, reward, terminated, truncated, info
+        return obs, terms["reward"], terminated, truncated, info
 
 
 # ------------------------------------------------------------------------
@@ -309,6 +369,9 @@ class TestEnv(gym.Env):
         self.current_speed = 0.0
         self.current_position = 0.0
 
+        # Acceleration is initialized to zero at the start of each episode.
+        self.previous_acceleration = 0.0
+
         # Lead vehicle parameters
         self.lead_speed = 0.0
         self.lead_position = 0.0
@@ -338,10 +401,10 @@ class TestEnv(gym.Env):
     def step(self, action):
         # Clamp the selected acceleration to the allowed physical limits before updating the vehicle's speed.
         # I.e. Enforce the acceleration limits defined by the environment.
-        accel = np.clip(action[0], MAX_DECELERATION, MAX_ACCELERATION)
+        acceleration = np.clip(action[0], MAX_DECELERATION, MAX_ACCELERATION)
         
         # Ego vehicle accelerates according to the agent's action
-        self.current_speed += accel * self.delta_t
+        self.current_speed += acceleration * self.delta_t
         self.current_position += self.current_speed * self.delta_t
 
         # Lead vehicle accelerates according to the reference speed profile
@@ -354,52 +417,19 @@ class TestEnv(gym.Env):
         if self.current_speed < 0:
             self.current_speed = 0.0
 
-        # Calculate the reward based on the difference between current speed and reference speed
-        speed_error = abs(self.current_speed - self.lead_speed)
-
-        # The agent is rewarded for matching the lead vehicle's speed while maintaining a safe following distance. 
-        # A target following distance of 5-30 meters is considered acceptable. 
-        # If the ego vehicle gets closer than 5 meters or farther than 30 meters, a distance penalty is applied.
-        # Also penalize the agent even more for getting too close (less than 2 meters) to the lead vehicle.
-        # Too close penalities are weighted more heavily to encourage the agent to maintain a safe following distance.
-        distance_error = 0.0
-        if self.following_distance < VERY_MIN_FOLLOW_DISTANCE:
-            distance_error = WAY_TOO_CLOSE_PENALTY_WEIGHT * (VERY_MIN_FOLLOW_DISTANCE - self.following_distance)
-        elif self.following_distance < MIN_FOLLOW_DISTANCE:
-            distance_error =  TOO_CLOSE_PENALTY_WEIGHT * (MIN_FOLLOW_DISTANCE - self.following_distance)
-        elif self.following_distance > MAX_FOLLOW_DISTANCE:
-            distance_error = 2 * (self.following_distance - MAX_FOLLOW_DISTANCE)
-
-        # The agent is rewarded for maintaining a safe following distance.
-        safe_bonus = 0.0
-        if MIN_FOLLOW_DISTANCE <= self.following_distance <= MAX_FOLLOW_DISTANCE:
-            safe_bonus = SAFE_ZONE_BONUS
-            # Provide an additional reward for staying near the middle of the safe following distance range.
-            if PREFERRED_MIN_FOLLOW_DISTANCE <= self.following_distance <= PREFERRED_MAX_FOLLOW_DISTANCE:
-                safe_bonus += PREFERRED_DISTANCE_BONUS
-
-        # The collision penalty is applied if the following distance is less than or equal to zero, 
-        # indicating a collision with the lead vehicle.
-        collision_penalty = 0.0
-        if self.following_distance <= 0:
-            collision_penalty = COLLISION_PENALTY
-
-        # Apply an additional penalty if the ego vehicle falls excessively far behind.
-        too_far_penalty = 0.0
-        if self.following_distance > TOO_FAR_FOLLOW_DISTANCE:
-            too_far_penalty = TOO_FAR_PENALTY
-
-        speed_penalty = SPEED_PENALTY_WEIGHT * speed_error
-        distance_penalty = DISTANCE_PENALTY_WEIGHT * distance_error
-
-        reward = ( 
-            safe_bonus
-            - speed_penalty 
-            - distance_penalty 
-            - collision_penalty
-            - too_far_penalty
+        
+        # Calculate the speed error, distance error, and reward based on the current state of the ego vehicle and the lead vehicle.
+        terms = calculate_errors_and_reward(
+            current_speed=self.current_speed,
+            lead_speed=self.lead_speed,
+            following_distance=self.following_distance,
+            acceleration=acceleration,
+            previous_acceleration=self.previous_acceleration,
+            delta_t=self.delta_t,
         )
 
+        # Store the current acceleration for the next timestep.
+        self.previous_acceleration = acceleration
         self.idx += 1
         terminated = (self.idx >= self.n_steps)
         truncated = False
@@ -411,11 +441,12 @@ class TestEnv(gym.Env):
             ], dtype=np.float32)
         
         info = {
-            "speed_error": speed_error, 
-            "distance_error": distance_error,
-            "acceleration": accel,
-            }
-        return obs, reward, terminated, truncated, info
+            "speed_error": terms['speed_error'],
+            "distance_error": terms['distance_error'],
+            "acceleration": acceleration,
+        }
+
+        return obs, terms['reward'], terminated, truncated, info
 
 
 # ------------------------------------------------------------------------
@@ -637,26 +668,29 @@ def main():
     # Calculate and display average reward, maximum distance error, mean distance error, and percentage of time within safe following distance.
     avg_test_reward = np.mean(rewards)
 
-    max_distance_error = max(distance_errors)
-    mean_distance_error = np.mean(distance_errors)
 
-    mean_speed_error = np.mean(speed_errors)
-    max_speed_error = np.max(speed_errors)
+    mean_distance_error = np.mean(distance_errors)
+    max_distance_error = max(distance_errors)
+
+    mean_speed_error = np.mean(speed_errors) # signed bias
+    mean_abs_speed_error = np.mean(np.abs(speed_errors))
+    max_abs_speed_error = np.max(np.abs(speed_errors))
 
     percent_in_safe_zone = 100 * np.mean(np.array(distance_errors) == 0)
     
     print(f"[TEST] Average reward over 1200-step test: {avg_test_reward:.3f}")
-
-    print(f"[TEST] Mean speed error: {mean_speed_error:.3f}")
-    print(f"[TEST] Maximum speed error: {max_speed_error:.3f}")
-
-    print(f"[TEST] Mean jerk: {mean_jerk:.3f}")
-    print(f"[TEST] Mean absolute jerk: {mean_absolute_jerk:.3f}")
-    print(f"[TEST] Variance of jerk: {variance_jerk:.3f}")
-
-    print(f"[TEST] Maximum distance error: {max_distance_error:.3f}")
-    print(f"[TEST] Mean distance error: {mean_distance_error:.3f}")
-
+    print("--------------------------------------------------------")
+    print(f"[TEST] Mean speed error (m/s): {mean_speed_error:.3f}")
+    print(f"[TEST] Mean absolute speed error (m/s): {mean_abs_speed_error:.3f}")
+    print(f"[TEST] Maximum absolute speed error (m/s): {max_abs_speed_error:.3f}")
+    print("--------------------------------------------------------")
+    print(f"[TEST] Mean distance error (m): {mean_distance_error:.3f}")
+    print(f"[TEST] Maximum distance error (m): {max_distance_error:.3f}")
+    print("--------------------------------------------------------")
+    print(f"[TEST] Mean jerk (m/s^3): {mean_jerk:.3f}")
+    print(f"[TEST] Mean absolute jerk (m/s^3): {mean_absolute_jerk:.3f}")
+    print(f"[TEST] Variance of jerk (m/s^3)^2: {variance_jerk:.3f}")
+    print("--------------------------------------------------------")
     print(f"[TEST] Vehicle remained within the desired following distance: {percent_in_safe_zone:.2f}% of the test.")
     
     # Plot the lead vehicle and ego vehicle speeds over the entire test.
